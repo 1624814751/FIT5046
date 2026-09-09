@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.movesmart.navigation.AppNavHost
 
 //
 val AppBackground = Color(0xFFF7F7F5)
@@ -44,23 +45,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                var showHistory by remember { mutableStateOf(false) }
-
-                Box(modifier = Modifier.fillMaxSize()) {
-                    if (showHistory) {
-                        HistoryScreen()
-                    } else {
-                        LiveActivityScreen()
-                    }
-
-                    // 临时切换按钮，方便截图
-                    Button(
-                        onClick = { showHistory = !showHistory },
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
-                    ) {
-                        Text(if (showHistory) "Switch to Live Activity" else "Switch to History")
-                    }
-                }
+                AppNavHost()
             }
         }
     }
