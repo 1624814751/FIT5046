@@ -24,6 +24,12 @@ class WorkoutViewModel : ViewModel() {
     var selectedIntensity by mutableStateOf("Medium")
         private set
 
+    var selectedLocation by mutableStateOf("Chadstone")
+        private set
+
+    var selectedPreference by mutableStateOf("Outdoor")
+        private set
+
     var recommendationAccepted by mutableStateOf(false)
         private set
 
@@ -41,6 +47,14 @@ class WorkoutViewModel : ViewModel() {
 
     fun updateIntensity(intensity: String) {
         selectedIntensity = intensity
+    }
+
+    fun updateLocation(location: String) {
+        selectedLocation = location
+    }
+
+    fun updatePreference(preference: String) {
+        selectedPreference = preference
     }
 
     fun acceptRecommendation() {
