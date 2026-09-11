@@ -12,7 +12,10 @@ class PrototypeState(val today: LocalDate = LocalDate.now()) {
     var records by mutableStateOf(sampleRecords(today))
     var reminder by mutableStateOf(ReminderSettings())
     var preferences by mutableStateOf(Preferences())
-    var rainy by mutableStateOf(false)
+    var displayName by mutableStateOf("Alex")
+    var email by mutableStateOf("alex@example.com")
+    var activePlannedMinutes by mutableStateOf(30)
+    var activeIntensity by mutableStateOf("Medium")
     var activeWorkout by mutableStateOf("Outdoor Walk")
 
     fun saveRecord(record: WorkoutRecord) {
@@ -39,7 +42,10 @@ class PrototypeState(val today: LocalDate = LocalDate.now()) {
                     })
                     put("goal", state.preferences.goal); put("intensity", state.preferences.intensity)
                     put("weeklyMinutes", state.preferences.weeklyMinutes)
-                    put("rainy", state.rainy); put("activeWorkout", state.activeWorkout)
+                    put("activities", JSONArray(state.preferences.activities))
+                    put("displayName", state.displayName); put("email", state.email)
+                    put("activePlannedMinutes", state.activePlannedMinutes); put("activeIntensity", state.activeIntensity)
+                    put("activeWorkout", state.activeWorkout)
                 }.toString()
             },
             restore = { encoded ->
@@ -53,8 +59,12 @@ class PrototypeState(val today: LocalDate = LocalDate.now()) {
                     val days = settings.getJSONArray("days")
                     reminder = ReminderSettings(settings.getBoolean("enabled"), settings.getString("label"), settings.getInt("hour"), settings.getInt("minute"),
                         (0 until days.length()).map { days.getInt(it) }.toSet(), settings.getBoolean("sound"))
-                    preferences = Preferences(json.getString("goal"), json.getString("intensity"), json.getInt("weeklyMinutes"))
-                    rainy = json.getBoolean("rainy"); activeWorkout = json.getString("activeWorkout")
+                    val activities = json.optJSONArray("activities")
+                    preferences = Preferences(json.getString("goal"), json.getString("intensity"), json.getInt("weeklyMinutes"),
+                        activities?.let { (0 until it.length()).map(it::getString) } ?: Preferences().activities)
+                    displayName = json.optString("displayName", "Alex"); email = json.optString("email", "alex@example.com")
+                    activePlannedMinutes = json.optInt("activePlannedMinutes", 30); activeIntensity = json.optString("activeIntensity", "Medium")
+                    activeWorkout = json.getString("activeWorkout")
                 }
             }
         )

@@ -26,9 +26,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 
 // Member C screens extracted from MainActivity and connected through callbacks.
 @Composable
-fun LiveActivityScreen(activity: String, intensity: String, onFinish: () -> Unit) {
-    val sessionMinutes = sampleSessionMinutes(activity)
-    val plannedMinutes = if (activity == "Indoor Mobility") 20 else 30
+fun LiveActivityScreen(activity: String, intensity: String, plannedMinutes: Int, onFinish: () -> Unit) {
+    val sessionMinutes = sampleSessionMinutes(activity, plannedMinutes)
     var paused by rememberSaveable { mutableStateOf(false) }
     var confirmFinish by rememberSaveable { mutableStateOf(false) }
     ScreenColumn {
@@ -106,7 +105,7 @@ fun WorkoutEditorScreen(record: WorkoutRecord?, today: LocalDate, onSave: (Strin
     val invalidMinutes = minutes.toIntOrNull()?.let { it !in 1..600 } ?: true
     ScreenColumn {
         SectionHeading(if (record == null) "Record your movement" else "Update your session", "Your changes also update Statistics.")
-        ChoiceField("Activity", title, listOf("Outdoor Walk", "Indoor Cycling", "Yoga", "Mobility", "Indoor Mobility"), { title = it })
+        ChoiceField("Activity", title, listOf("Outdoor Walk", "Outdoor Jogging", "Indoor Cycling", "Yoga", "Mobility", "Indoor Mobility"), { title = it })
         OutlinedTextField(minutes, { minutes = it }, label = { Text("Duration (minutes)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), isError = attempted && invalidMinutes,
             supportingText = { Text("Enter a whole number from 1 to 600.") }, modifier = Modifier.fillMaxWidth())

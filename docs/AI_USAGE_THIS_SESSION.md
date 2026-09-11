@@ -23,3 +23,12 @@ Include actual screenshots or exports of this conversation and its generated res
 Each team member must describe their actual review, changes and learning after doing that work. This record does not claim that any human has already reviewed, modified, tested or understood the generated output. A useful final entry should identify specific code they changed, the reason, and what they verified in the emulator.
 
 The brief permits AI assistance for parts of the assessment while requiring sincere human learning. Treat these outputs as material to inspect, explain, modify and integrate, not as evidence of learning that has already occurred.
+
+
+## Integration follow-up — 11 September 2026
+
+The user requested: “那帮我们把我们的代码从git pull下来,整合一下吧” and clarified: “就按照你认为最优解,最符合我们评分的方式来修复矛盾,同时不要大改我们几个人的代码”.
+
+ChatGPT/Codex fetched the remote branches, compared their histories and integrated A/B modules with the existing C/D application. Assistance included adapting screen callbacks, shared theme/state and navigation, repairing duration/context inconsistencies, extending regression tests, running builds/emulator tests and collecting screenshots. The original member implementations remain the source of the corresponding layouts. Detailed changes and source commit IDs are in TEAM_INTEGRATION.md.
+
+This repository summary is evidence of scope, not the report's full AI prompt/response history. Include the actual conversation and the team's actual review/adaptation in the assessment acknowledgement; do not invent reviews or contributions.

@@ -25,7 +25,8 @@ data class ReminderSettings(
     }
 }
 
-data class Preferences(val goal: String = "Build a routine", val intensity: String = "Moderate", val weeklyMinutes: Int = 150)
+data class Preferences(val goal: String = "Stay Active", val intensity: String = "Medium", val weeklyMinutes: Int = 150,
+    val activities: List<String> = listOf("Walking", "Swimming", "Badminton"))
 
 data class WeekSummary(val start: LocalDate, val dailyMinutes: List<Int>, val sessions: Int) {
     val totalMinutes: Int get() = dailyMinutes.sum()
@@ -49,4 +50,4 @@ fun sampleRecords(today: LocalDate): List<WorkoutRecord> {
     }
 }
 
-fun sampleSessionMinutes(activity: String): Int = if (activity == "Indoor Mobility") 15 else 25
+fun sampleSessionMinutes(activity: String, plannedMinutes: Int = 30): Int = minOf(plannedMinutes, if (activity == "Indoor Mobility") 15 else 25)

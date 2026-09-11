@@ -1,3 +1,5 @@
+> This is the original section draft. The integrated app now uses member A's account/preferences screens and member B's context form. Check screen/control names against [TEAM_INTEGRATION.md](TEAM_INTEGRATION.md) before copying into the final report.
+
 # MoveSmart Section 4 5 6 draft
 
 以下英文草稿对应本轮 prototype。Section 4/5 要与全组 Section 1–3 合并计入 1200 words；Section 6 不计入。Week 6 seminar 未提供，请在采用 Section 4 前逐条核对课堂原始 guideline。不要把下列 A4 计划描述为已经实现。

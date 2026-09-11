@@ -1,3 +1,5 @@
+> Historical audit from 9 September. The current integrated code and branch sources are documented in [TEAM_INTEGRATION.md](TEAM_INTEGRATION.md). Statements below about missing A/B code predate the 11 September integration.
+
 # MoveSmart A2 审阅与 D 交接
 
 审阅日期：2026-09-09。项目：Context-aware 智能健身推荐 App。本文是实施审阅及交接资料，不是可直接替代整组 Proposal PDF 的成品报告。
