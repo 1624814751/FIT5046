@@ -189,7 +189,7 @@ fun ActivityRecommendationScreen(workoutViewModel: WorkoutViewModel, onShowDetai
 }
 
 @Composable
-fun ActivityDetailsScreen(workoutViewModel: WorkoutViewModel, onBack: () -> Unit, onStart: () -> Unit) {
+fun ActivityDetailsScreen(workoutViewModel: WorkoutViewModel, onBack: () -> Unit, onReminder: () -> Unit, onStart: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Your best match", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Ink)
         Card(colors = CardDefaults.cardColors(containerColor = Hero), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
@@ -211,6 +211,7 @@ fun ActivityDetailsScreen(workoutViewModel: WorkoutViewModel, onBack: () -> Unit
             OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("Edit") }
             Button(onClick = onStart, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Brand)) { Text("Start activity") }
         }
+        OutlinedButton(onClick = onReminder, modifier = Modifier.fillMaxWidth()) { Text("Set reminder") }
     }
 }
 

@@ -12,11 +12,19 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Before
+import kotlinx.coroutines.runBlocking
+import com.example.movesmart.reminder.ReminderService
 import java.io.File
 
 /** Navigation/state regressions and genuine emulator captures for the A2 report. */
 class PrototypeUiTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @Before fun clearPersistedReminders() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        runBlocking { ReminderService.get(context).logout().getOrThrow() }
+        context.getSharedPreferences("workout_reminders", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+    }
     private fun tap(text: String) = compose.onNode(hasText(text) and hasClickAction()).performClick()
     private fun scrollTap(text: String) = compose.onNode(hasText(text) and hasClickAction()).performScrollTo().performClick()
     private fun demo() = scrollTap("Explore demo")
@@ -73,7 +81,7 @@ class PrototypeUiTest {
         scrollTap("Edit Preferences")
         capture("11-preferences")
         back()
-        scrollTap("Reminder settings · On")
+        scrollTap("Reminder settings · Off")
         capture("12-reminders")
         compose.onNode(hasText("Save reminders") and hasClickAction()).performScrollTo()
         capture("13-reminders-form-bottom")
@@ -83,6 +91,7 @@ class PrototypeUiTest {
     @Test fun disabledReminderSurvivesRecreationAndNavigation() {
         demo()
         compose.onNodeWithContentDescription("Reminder settings").performClick()
+        compose.onNodeWithContentDescription("Workout reminders").performClick()
         compose.onNodeWithContentDescription("Workout reminders").performClick()
         scrollTap("Save reminders")
         compose.activityRule.scenario.recreate()
@@ -95,6 +104,7 @@ class PrototypeUiTest {
     @Test fun reminderRejectsAnEmptyRepeatSchedule() {
         demo()
         compose.onNodeWithContentDescription("Reminder settings").performClick()
+        compose.onNodeWithContentDescription("Workout reminders").performScrollTo().performClick()
         listOf("Monday", "Wednesday", "Friday").forEach { day ->
             compose.onNodeWithContentDescription(day).performScrollTo().performClick()
         }
@@ -118,13 +128,17 @@ class PrototypeUiTest {
         tap("Home")
         capture("18-home-dark-large-text")
         compose.onNodeWithContentDescription("Reminder settings").performClick()
+        compose.onNodeWithContentDescription("Workout reminders").performScrollTo().performClick()
         scrollTap("Change")
         compose.onNodeWithText("Reminder time").assertIsDisplayed()
         capture("16-time-input-dark-large-text")
         tap("Cancel")
         compose.onNodeWithText("Reminder time").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Workout reminders").performScrollTo().performClick()
         scrollTap("Save reminders")
-        compose.onNodeWithText("Reminder settings saved for this demo.").assertExists()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Reminders are off. Scheduled notifications cancelled.").fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     @Test fun searchEmptyStateAndLogoutReset() {

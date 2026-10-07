@@ -1,12 +1,14 @@
 # MoveSmart
 
-FIT5046 Assessment 2 Compose skeleton prototype for a context-aware fitness recommendation app.
+FIT5046 MoveSmart A4 development, based on the team's integrated A2 Compose prototype.
+
+Member D milestone 1 adds persistent, user-scoped reminder settings, AlarmManager scheduling, notification permissions/channels, cancellation, calendar-based repeats and restore handling. Activity Details now links to Reminder Settings. The current account adapter is explicitly `local-demo`; Member A's authenticated user ID will replace it during integration. See [the reminder implementation and verification notes](docs/A4_MEMBER_D_REMINDERS.md).
 
 The `member-d-dev` branch integrates the team's A2 screens: member A's account/profile/preferences (`f611cd0`), member B's context-aware planning (`075a39c`), member C's Live Activity/History baseline (`6534891`), and member D's reminders/statistics/navigation (`59f6c39`). See the [integration record](docs/TEAM_INTEGRATION.md) for provenance and the small adaptations between modules.
 
 Open this folder in Android Studio. On the Login screen, **Explore demo** enters the app without credentials. Use Home / History / Statistics / Profile in the bottom bar. Reminder settings are available from Home and Profile. Home → Find an activity → Activity details → Start activity → Live workout → History is the main demo flow. The context form includes a DatePicker, four dropdowns and a sample rain toggle. Recommendations respect the selected time, location and indoor/outdoor context. Saved profile intensity feeds the form; the weekly target and history records feed Statistics.
 
-This A2 build has no real authentication, Room, Retrofit, WorkManager, AlarmManager or notification delivery. The sample screens and callback interfaces are intended for A4 extension.
+Authentication, workout records, weather and movement still use A2 demo data: real authentication, Room, Retrofit and WorkManager remain integration work. Reminder settings and scheduling now use Android services and device storage; device-level verification of this new milestone is still pending. Existing A2 verification documents describe the September baseline, not this change.
 
 - [Team integration, module sources and current report alignment](docs/TEAM_INTEGRATION.md)
 - [Original A2 requirements, rubric, allocation audit and merge instructions](docs/A2_REVIEW_AND_HANDOFF.md)

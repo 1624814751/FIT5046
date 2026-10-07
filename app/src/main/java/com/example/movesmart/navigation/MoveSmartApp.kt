@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
@@ -23,6 +24,9 @@ import com.example.movesmart.ui.context.ActivityRecommendationScreen
 import com.example.movesmart.ui.context.ActivityDetailsScreen
 import com.example.movesmart.ui.context.WorkoutViewModel
 import com.example.movesmart.ui.screens.*
+import com.example.movesmart.reminder.ReminderRoute
+import com.example.movesmart.reminder.ReminderService
+import com.example.movesmart.reminder.toForm
 import kotlinx.coroutines.launch
 
 // Stable routes and callback-based screens are the integration contract for A/B/C/D.
@@ -52,7 +56,7 @@ private val tabs = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MoveSmartApp() {
+fun MoveSmartApp(openReminderRequest: Int = 0) {
     val nav = rememberNavController()
     val context: WorkoutViewModel = viewModel()
     var state by rememberSaveable(stateSaver = PrototypeState.StateSaver) { mutableStateOf(PrototypeState()) }
@@ -69,6 +73,23 @@ fun MoveSmartApp() {
     }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val androidContext = LocalContext.current
+    val reminders = remember(androidContext) { ReminderService.get(androidContext) }
+    // Replace this adapter with A's authenticated UserAccount.userId during account integration.
+    val reminderUserId = "local-demo"
+    val reminderFlow = remember(reminders) { reminders.store.observe(reminderUserId) }
+    val savedReminder by reminderFlow.collectAsState(initial = reminders.store.read(reminderUserId))
+    var handledReminderRequest by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(savedReminder, state) { state.reminder = savedReminder?.toForm() ?: ReminderSettings(enabled = false) }
+    LaunchedEffect(auth) {
+        if (!auth) reminders.activate(reminderUserId)
+    }
+    LaunchedEffect(openReminderRequest, auth) {
+        if (!auth && openReminderRequest > handledReminderRequest) {
+            handledReminderRequest = openReminderRequest
+            nav.navigate(Routes.REMINDERS) { launchSingleTop = true }
+        }
+    }
     fun notify(message: String) { scope.launch { snackbar.showSnackbar(message) } }
     fun navigate(target: String) {
         snackbar.currentSnackbarData?.dismiss()
@@ -154,7 +175,7 @@ fun MoveSmartApp() {
             }
             composable(Routes.DISCOVER) { ActivityRecommendationScreen(context) { navigate(Routes.PLAN) } }
             composable(Routes.PLAN) {
-                ActivityDetailsScreen(context, onBack = { nav.popBackStack() }, onStart = {
+                ActivityDetailsScreen(context, onBack = { nav.popBackStack() }, onReminder = { navigate(Routes.REMINDERS) }, onStart = {
                     val recommendation = context.recommendation
                     startWorkout(recommendation.title, recommendation.minutes, context.selectedIntensity)
                 })
@@ -178,20 +199,21 @@ fun MoveSmartApp() {
                     nav.popBackStack(); notify("Workout saved. Your statistics are updated.")
                 }
             }
-            composable(Routes.REMINDERS) { ReminderSettingsScreen(state.reminder) {
-                state.reminder = it; notify("Reminder settings saved for this demo.")
-            } }
+            composable(Routes.REMINDERS) { ReminderRoute(reminderUserId) }
             composable(Routes.STATISTICS) { StatisticsScreen(state.records, state.preferences.weeklyMinutes, state.today) { selectTab(Routes.HISTORY) } }
             composable(Routes.PROFILE) { ProfileScreen(
                 intensity = state.preferences.intensity, activities = state.preferences.activities, goal = state.preferences.goal,
                 displayName = state.displayName, email = state.email, weeklyMinutes = state.preferences.weeklyMinutes,
                 reminderEnabled = state.reminder.enabled, onReminders = { navigate(Routes.REMINDERS) },
                 onStatistics = { selectTab(Routes.STATISTICS) }, onEditPreferences = { navigate(Routes.PREFERENCES) }) {
-                state = PrototypeState()
-                context.reset()
-                // Clear saved tab stacks as well as the active stack when leaving a session.
-                tabs.forEach { nav.clearBackStack(it.route) }
-                nav.navigate(Routes.LOGIN) { popUpTo(nav.graph.id) { inclusive = true }; launchSingleTop = true }
+                scope.launch {
+                    reminders.logout()
+                    state = PrototypeState()
+                    context.reset()
+                    // Clear saved tab stacks as well as the active stack when leaving a session.
+                    tabs.forEach { nav.clearBackStack(it.route) }
+                    nav.navigate(Routes.LOGIN) { popUpTo(nav.graph.id) { inclusive = true }; launchSingleTop = true }
+                }
             } }
         }
     }

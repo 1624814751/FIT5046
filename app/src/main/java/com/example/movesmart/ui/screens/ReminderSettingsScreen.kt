@@ -18,6 +18,7 @@ import com.example.movesmart.model.ReminderSettings
 import com.example.movesmart.ui.components.*
 import java.time.DayOfWeek
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import androidx.compose.ui.platform.LocalConfiguration
@@ -25,7 +26,14 @@ import androidx.compose.ui.platform.LocalConfiguration
 // Member D. The saved value belongs to the app; edits remain a draft until Save.
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun ReminderSettingsScreen(saved: ReminderSettings, onSave: (ReminderSettings) -> Unit) {
+fun ReminderSettingsScreen(
+    saved: ReminderSettings,
+    isSaving: Boolean = false,
+    timeZoneLabel: String = ZoneId.systemDefault().id,
+    statusContent: @Composable () -> Unit = {},
+    saveFeedback: @Composable () -> Unit = {},
+    onSave: (ReminderSettings) -> Unit
+) {
     val locale = LocalConfiguration.current.locales[0]
     var enabled by rememberSaveable(saved) { mutableStateOf(saved.enabled) }
     var label by rememberSaveable(saved) { mutableStateOf(saved.label) }
@@ -42,6 +50,7 @@ fun ReminderSettingsScreen(saved: ReminderSettings, onSave: (ReminderSettings) -
 
     ScreenColumn {
         SectionHeading("Make time for movement", "A gentle nudge, on the days that suit you.")
+        statusContent()
         InfoCard(highlighted = true) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.NotificationsActive, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -53,7 +62,6 @@ fun ReminderSettingsScreen(saved: ReminderSettings, onSave: (ReminderSettings) -
                 Switch(enabled, { enabled = it }, modifier = Modifier.semantics { contentDescription = "Workout reminders" })
             }
         }
-        Text("Preview only · No notifications are sent in this prototype.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (enabled) {
             OutlinedTextField(
                 label, { label = it }, label = { Text("Reminder name") },
@@ -71,7 +79,7 @@ fun ReminderSettingsScreen(saved: ReminderSettings, onSave: (ReminderSettings) -
                     Spacer(Modifier.weight(1f))
                     Text("Change")
                 }
-                Text("Uses your device's local time.", style = MaterialTheme.typography.bodySmall)
+                Text("Time zone: $timeZoneLabel", style = MaterialTheme.typography.bodySmall)
                 Text("Repeat on", style = MaterialTheme.typography.titleMedium)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     (1..7).forEach { day ->
@@ -103,10 +111,11 @@ fun ReminderSettingsScreen(saved: ReminderSettings, onSave: (ReminderSettings) -
         error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
-        PrimaryButton("Save reminders", {
+        saveFeedback()
+        PrimaryButton(if (isSaving) "Saving…" else "Save reminders", {
             attempted = true
             if (draft.validationError() == null) onSave(draft.copy(label = label.trim()))
-        })
+        }, enabled = !isSaving)
     }
     if (showTime) {
         val timeState = rememberTimePickerState(hour, minute, is24Hour = use24Hour)
