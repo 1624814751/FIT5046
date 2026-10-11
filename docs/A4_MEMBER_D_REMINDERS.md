@@ -24,7 +24,7 @@ The app and Android test APK compile. All 22 JVM tests pass (the 11 existing tes
 
 New JVM tests cover same-day scheduling, past/equal trigger times, weekday rollover, midnight, disabled/invalid settings, Melbourne daylight-saving transitions and an independent saved time zone. The existing UI tests were updated for the new default-off and persistent reminder behavior.
 
-Six device integration tests compile and are ready in `ReminderIntegrationTest`: persistence/user isolation; edit/cancel; account switching/logout; the restore path; a real short-delay alarm delivered through the receiver and notification manager; and the silent channel. They have NOT been executed in this environment. The installed emulator fails before Android boots (`Illegal instruction` in headless mode and a Qt `neon` compatibility error in windowed mode). The failure is in the host emulator, not evidence of an application test failure or success.
+Six device integration tests compile and are ready in `ReminderIntegrationTest`: persistence/user isolation; edit/cancel; account switching/logout; the restore path; explicit PendingIntent delivery through the receiver and notification manager (independent of inexact alarm timing); and the silent channel. They have NOT been executed in this environment. The installed emulator fails before Android boots (`Illegal instruction` in headless mode and a Qt `neon` compatibility error in windowed mode). The failure is in the host emulator, not evidence of an application test failure or success.
 
 Run on an API 36+ emulator/device after resolving that host issue:
 
@@ -34,6 +34,19 @@ Run on an API 36+ emulator/device after resolving that host issue:
 ```
 
 Before treating the milestone as device-verified, also check permission denial/regrant, a physical/emulated reboot, changing time zone, and tapping a delivered notification with the app both open and closed. The automated restore test invokes the same restore service; it is not a reboot test. Android's inexact-alarm delay should be allowed for during demo preparation.
+
+### Separate receiver tests from real alarm delivery
+
+The receiver test sends the production PendingIntent directly and checks notification content, rearming and duplicate rejection. Its 10-second monotonic timeout bounds asynchronous receiver processing only; it does not claim that AlarmManager delivers within 10 seconds. The production scheduler remains inexact.
+
+Real AlarmManager delivery is a separate manual device check:
+
+1. Enable notifications and the relevant channel. Save a reminder for an upcoming time and the correct weekday/time zone using the app.
+2. Record the requested time, device/API version, battery saver and idle state. Confirm `Alarm scheduled` in `MoveSmartReminder` logcat; do not manually send the PendingIntent during this check.
+3. Observe `Alarm triggered` and `Notification sent`, record the actual delivery time and inspect the notification. Confirm a tap opens reminders and the next occurrence is scheduled.
+4. Repeat with the device idle. Android may defer inexact alarms; no fixed 60-second pass/fail deadline applies. If the observation session ends before delivery, record **inconclusive / not observed**, retain logs and investigate permissions, force-stop state and system scheduling before diagnosing a failure.
+
+The real alarm check remains pending until delivery is observed on a working device. Compiling or passing the direct receiver test is not evidence that this check passed.
 
 ## Remaining D work
 
