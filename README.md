@@ -24,7 +24,7 @@ Build with JDK 21, compile SDK 37.1 and Gradle wrapper 9.5.0, following the orig
 
 To run the UI checks, start an emulator and run `./gradlew :app:connectedDebugAndroidTest`.
 
-Before opening a PR, verify **base: main**, **compare: member-d-dev**. The repository currently defaults to `member-c-dev`; do not accidentally target that branch.
+The school GitLab repository defaults to `main`. For the shared baseline merge request, verify **target: main**, **source: member-d-dev**. Statistics work is on the independent `member-d-statistics` branch. When opening a request on either GitLab or GitHub, check the target and source explicitly; the two remotes may have different defaults.
 
 ## AI Assistance Declaration
 
