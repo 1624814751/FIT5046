@@ -15,6 +15,16 @@ import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.example.movesmart.model.*
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.activity.compose.BackHandler
+import com.example.movesmart.data.local.MoveSmartDatabase
+import com.example.movesmart.data.local.RoomWorkoutRepository
+import com.example.movesmart.shared.DataSource
+import com.example.movesmart.shared.WorkoutRecord as StoredWorkoutRecord
+import com.example.movesmart.workout.WorkoutRecordsViewModel
+import com.example.movesmart.workout.WorkoutRecordsState
+import com.example.movesmart.ui.components.ScreenColumn
+import java.time.LocalDate
 import com.example.movesmart.ui.auth.LoginScreen
 import com.example.movesmart.ui.auth.SignUpScreen
 import com.example.movesmart.ui.preferences.PreferencesScreen
@@ -56,7 +66,11 @@ private val tabs = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MoveSmartApp(openReminderRequest: Int = 0) {
+fun MoveSmartApp(
+    openReminderRequest: Int = 0,
+    workoutRepository: com.example.movesmart.shared.WorkoutRepository? = null,
+    workoutUserId: String = "local-demo"
+) {
     val nav = rememberNavController()
     val context: WorkoutViewModel = viewModel()
     var state by rememberSaveable(stateSaver = PrototypeState.StateSaver) { mutableStateOf(PrototypeState()) }
@@ -74,6 +88,18 @@ fun MoveSmartApp(openReminderRequest: Int = 0) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val androidContext = LocalContext.current
+    val repository = remember(androidContext, workoutRepository) {
+        workoutRepository ?: RoomWorkoutRepository(MoveSmartDatabase.get(androidContext))
+    }
+    // A will supply the authenticated UserAccount.userId; demo emails are not identities.
+    val workouts: WorkoutRecordsViewModel = viewModel(key = "workouts:$workoutUserId",
+        factory = WorkoutRecordsViewModel.factory(repository, workoutUserId))
+    val recordsState by workouts.state.collectAsStateWithLifecycle()
+    val saving by workouts.isSaving.collectAsStateWithLifecycle()
+    val records = remember(recordsState.records) {
+        recordsState.records.map { WorkoutRecord(it.id, it.title, it.minutes, it.date) }
+    }
+    val today = LocalDate.now()
     val reminders = remember(androidContext) { ReminderService.get(androidContext) }
     // Replace this adapter with A's authenticated UserAccount.userId during account integration.
     val reminderUserId = "local-demo"
@@ -125,7 +151,7 @@ fun MoveSmartApp(openReminderRequest: Int = 0) {
     Scaffold(
         topBar = {
             TopAppBar(title = { Text(title) }, navigationIcon = {
-                if (!topLevel && route != Routes.LOGIN) IconButton({ nav.popBackStack() }) {
+                if (!topLevel && route != Routes.LOGIN) IconButton({ nav.popBackStack() }, enabled = !saving) {
                     Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
                 }
             }, actions = {
@@ -137,7 +163,7 @@ fun MoveSmartApp(openReminderRequest: Int = 0) {
             if (!auth && route != Routes.LIVE && route != Routes.PREFERENCES && route != Routes.RECORD) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     tabs.forEach { tab ->
-                        NavigationBarItem(selected = selectedTab == tab.route, onClick = { selectTab(tab.route) },
+                        NavigationBarItem(selected = selectedTab == tab.route, onClick = { selectTab(tab.route) }, enabled = !saving,
                             icon = { Icon(tab.icon, contentDescription = null) }, label = { Text(tab.label) })
                     }
                 }
@@ -180,27 +206,60 @@ fun MoveSmartApp(openReminderRequest: Int = 0) {
                     startWorkout(recommendation.title, recommendation.minutes, context.selectedIntensity)
                 })
             }
-            composable(Routes.LIVE) { LiveActivityScreen(state.activeWorkout, state.activeIntensity, state.activePlannedMinutes) {
-                state.saveRecord(WorkoutRecord(state.nextId(), state.activeWorkout, sampleSessionMinutes(state.activeWorkout, state.activePlannedMinutes), state.today))
-                nav.navigate(Routes.HISTORY) { popUpTo(Routes.HOME); launchSingleTop = true }
-                notify("Session saved. Your statistics are updated.")
-            } }
-            composable(Routes.HISTORY) { HistoryScreen(state.records, { navigate(Routes.record(-1)) }, { navigate(Routes.record(it)) },
-                { id -> state.records = state.records.filterNot { it.id == id }; notify("Workout deleted.") },
-                { navigate(Routes.SEARCH) }, { selectTab(Routes.STATISTICS) }) }
-            composable(Routes.SEARCH) { SearchScreen(state.records, { navigate(Routes.record(it)) }, { startWorkout(it) }) }
+            composable(Routes.LIVE) {
+                var saveError by rememberSaveable { mutableStateOf<String?>(null) }
+                LiveActivityScreen(state.activeWorkout, state.activeIntensity, state.activePlannedMinutes, saving, saveError) {
+                    saveError = null
+                    scope.launch {
+                        val record = StoredWorkoutRecord(0, workoutUserId, state.activeWorkout,
+                            sampleSessionMinutes(state.activeWorkout, state.activePlannedMinutes), LocalDate.now(), null, DataSource.DEMO)
+                        workouts.save(record).onSuccess {
+                            nav.navigate(Routes.HISTORY) { popUpTo(Routes.HOME); launchSingleTop = true }
+                            notify("Sample session saved. Your statistics are updated.")
+                        }.onFailure { saveError = "Could not save workout. Please try again." }
+                    }
+                }
+            }
+            composable(Routes.HISTORY) {
+                WorkoutDataContent(recordsState, workouts::retry) {
+                    HistoryScreen(records, { navigate(Routes.record(-1)) }, { navigate(Routes.record(it)) },
+                        { id -> scope.launch {
+                            workouts.delete(id).onSuccess { notify("Workout deleted.") }
+                                .onFailure { notify("Could not delete workout. Please try again.") }
+                        } }, { navigate(Routes.SEARCH) }, { selectTab(Routes.STATISTICS) }, saving)
+                }
+            }
+            composable(Routes.SEARCH) {
+                WorkoutDataContent(recordsState, workouts::retry) {
+                    SearchScreen(records, { navigate(Routes.record(it)) }, { startWorkout(it) })
+                }
+            }
             composable(Routes.RECORD, arguments = listOf(navArgument("id") { type = NavType.IntType })) { recordEntry ->
                 val id = recordEntry.arguments?.getInt("id") ?: -1
-                val record = state.records.find { it.id == id }
-                if (id != -1 && record == null) {
-                    Column { Text("This workout is no longer in your history."); TextButton({ nav.popBackStack() }) { Text("Go back") } }
-                } else WorkoutEditorScreen(record, state.today) { name, minutes, date ->
-                    state.saveRecord(WorkoutRecord(if (id == -1) state.nextId() else id, name, minutes, date))
-                    nav.popBackStack(); notify("Workout saved. Your statistics are updated.")
+                var saveError by rememberSaveable(id) { mutableStateOf<String?>(null) }
+                val original = recordsState.records.find { it.id == id }
+                val record = records.find { it.id == id }
+                WorkoutDataContent(recordsState, workouts::retry) {
+                    if (id != -1 && record == null) {
+                        ScreenColumn { Text("This workout is no longer in your history."); TextButton({ nav.popBackStack() }) { Text("Go back") } }
+                    } else WorkoutEditorScreen(record, today, saving, saveError, onCancel = { nav.popBackStack() }) { name, minutes, date ->
+                        saveError = null
+                        scope.launch {
+                            val saved = StoredWorkoutRecord(if (id == -1) 0 else id, workoutUserId, name, minutes, date,
+                                original?.startedAt, original?.source ?: DataSource.LIVE)
+                            workouts.save(saved).onSuccess {
+                                nav.popBackStack(); notify("Workout saved. Your statistics are updated.")
+                            }.onFailure { saveError = "Could not save workout. Please try again." }
+                        }
+                    }
                 }
             }
             composable(Routes.REMINDERS) { ReminderRoute(reminderUserId) }
-            composable(Routes.STATISTICS) { StatisticsScreen(state.records, state.preferences.weeklyMinutes, state.today) { selectTab(Routes.HISTORY) } }
+            composable(Routes.STATISTICS) {
+                WorkoutDataContent(recordsState, workouts::retry) {
+                    StatisticsScreen(records, state.preferences.weeklyMinutes, today) { selectTab(Routes.HISTORY) }
+                }
+            }
             composable(Routes.PROFILE) { ProfileScreen(
                 intensity = state.preferences.intensity, activities = state.preferences.activities, goal = state.preferences.goal,
                 displayName = state.displayName, email = state.email, weeklyMinutes = state.preferences.weeklyMinutes,
@@ -216,5 +275,19 @@ fun MoveSmartApp(openReminderRequest: Int = 0) {
                 }
             } }
         }
+        // Keep this inside Scaffold's content, after NavHost's own handler registration.
+        BackHandler(enabled = saving) { /* Wait for the pending write rather than popping twice. */ }
+    }
+}
+
+@Composable
+private fun WorkoutDataContent(state: WorkoutRecordsState, onRetry: () -> Unit, content: @Composable () -> Unit) {
+    when {
+        state.loading -> ScreenColumn { CircularProgressIndicator(); Text("Loading workouts…") }
+        state.error != null -> ScreenColumn {
+            Text(state.error, color = MaterialTheme.colorScheme.error)
+            Button(onRetry) { Text("Retry") }
+        }
+        else -> content()
     }
 }

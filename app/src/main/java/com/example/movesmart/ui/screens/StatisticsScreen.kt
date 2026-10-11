@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import androidx.compose.ui.platform.LocalConfiguration
 
-// Member D. Charts and History always read the same A2 fixture collection.
+// Member D's chart layout; the navigation layer supplies Member C's persisted records.
 @Composable
 fun StatisticsScreen(records: List<WorkoutRecord>, weeklyGoal: Int, today: LocalDate, onHistory: () -> Unit) {
     val locale = LocalConfiguration.current.locales[0]
@@ -26,7 +26,7 @@ fun StatisticsScreen(records: List<WorkoutRecord>, weeklyGoal: Int, today: Local
     val summary = weekSummary(records, today, if (lastWeek) 1 else 0)
     val rangeFormat = DateTimeFormatter.ofPattern("d MMM", locale)
     ScreenColumn(spacing = 16.dp) {
-        SectionHeading("Your week in motion", "Sample data · See how your movement adds up.")
+        SectionHeading("Your week in motion", "Saved workouts · See how your movement adds up.")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(!lastWeek, { lastWeek = false }, label = { Text("This week") })
             FilterChip(lastWeek, { lastWeek = true }, label = { Text("Last week") })

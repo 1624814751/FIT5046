@@ -16,10 +16,11 @@ import org.junit.Before
 import kotlinx.coroutines.runBlocking
 import com.example.movesmart.reminder.ReminderService
 import java.io.File
+import kotlinx.coroutines.flow.first
 
 /** Navigation/state regressions and genuine emulator captures for the A2 report. */
 class PrototypeUiTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = createAndroidComposeRule<PrototypeTestActivity>()
     @Before fun clearPersistedReminders() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         runBlocking { ReminderService.get(context).logout().getOrThrow() }
@@ -60,13 +61,15 @@ class PrototypeUiTest {
         capture("05-live-workout")
         scrollTap("Finish workout")
         tap("Save session")
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Every session counts").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Edit").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Every session counts").assertIsDisplayed()
         android.os.SystemClock.sleep(4500) // Let the save-feedback snackbar finish before report capture.
         capture("06-history")
         tap("Add workout")
         capture("07-add-workout")
         back()
-        compose.onAllNodes(hasText("Edit") and hasClickAction()).onFirst().performClick()
+        compose.onAllNodes(hasText("Edit") and hasClickAction()).onFirst().performScrollTo().performClick()
         capture("14-edit-workout")
         back()
         compose.onNodeWithContentDescription("Search").performClick()
@@ -117,7 +120,7 @@ class PrototypeUiTest {
             activity.setContent {
                 val density = LocalDensity.current
                 CompositionLocalProvider(LocalDensity provides Density(density.density, 1.3f)) {
-                    MoveSmartTheme(darkTheme = true) { MoveSmartApp() }
+                    MoveSmartTheme(darkTheme = true) { MoveSmartApp(workoutRepository = activity.workoutRepository) }
                 }
             }
         }
@@ -159,8 +162,12 @@ class PrototypeUiTest {
         demo()
         tap("Statistics")
         val today = java.time.LocalDate.now()
-        val baseline = com.example.movesmart.model.weekSummary(com.example.movesmart.model.sampleRecords(today), today).totalMinutes
-        compose.onNodeWithContentDescription("Weekly goal: $baseline of 150 minutes").assertExists()
+        // This Activity owns a fresh test file; no production records or A2 fixtures.
+        val saved = runBlocking {
+            compose.activity.workoutRepository.observe("local-demo").first()
+        }.map { com.example.movesmart.model.WorkoutRecord(it.id, it.title, it.minutes, it.date) }
+        val baseline = com.example.movesmart.model.weekSummary(saved, today).totalMinutes
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Weekly goal: $baseline of 150 minutes").fetchSemanticsNodes().isNotEmpty() }
         tap("Home")
         scrollTap("Find an activity")
         compose.onNodeWithText("Available time").performScrollTo().performClick()
@@ -176,9 +183,11 @@ class PrototypeUiTest {
         compose.onNodeWithText("15:00").assertExists()
         scrollTap("Finish workout")
         tap("Save session")
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Every session counts").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Edit").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Indoor Mobility").assertExists()
         compose.onNode(hasText("Statistics") and isSelectable()).performClick()
-        compose.onNodeWithContentDescription("Weekly goal: ${baseline + 15} of 150 minutes").assertExists()
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Weekly goal: ${baseline + 15} of 150 minutes").fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun memberAOnboardingPreferencesReachBAndD() {
