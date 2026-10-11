@@ -14,10 +14,13 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.example.movesmart.model.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.movesmart.ui.auth.AuthViewModel
 import com.example.movesmart.ui.auth.LoginScreen
 import com.example.movesmart.ui.auth.SignUpScreen
 import com.example.movesmart.ui.preferences.PreferencesScreen
+import com.example.movesmart.ui.preferences.PreferencesViewModel
 import com.example.movesmart.ui.profile.ProfileScreen
 import com.example.movesmart.ui.context.HomeScreen
 import com.example.movesmart.ui.context.ActivityRecommendationScreen
@@ -27,7 +30,9 @@ import com.example.movesmart.ui.screens.*
 import com.example.movesmart.reminder.ReminderRoute
 import com.example.movesmart.reminder.ReminderService
 import com.example.movesmart.reminder.toForm
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // Stable routes and callback-based screens are the integration contract for A/B/C/D.
 object Routes {
@@ -59,6 +64,15 @@ private val tabs = listOf(
 fun MoveSmartApp(openReminderRequest: Int = 0) {
     val nav = rememberNavController()
     val context: WorkoutViewModel = viewModel()
+    val androidContext = LocalContext.current
+    val authViewModel: AuthViewModel = viewModel(factory = AuthViewModel.factory(androidContext))
+    val preferencesViewModel: PreferencesViewModel =
+        viewModel(factory = PreferencesViewModel.factory(androidContext))
+    val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
+    val firstRoute = remember {
+        if (authViewModel.currentUser.value == null) Routes.LOGIN else Routes.HOME
+    }
+    var isDemoMode by rememberSaveable { mutableStateOf(false) }
     var state by rememberSaveable(stateSaver = PrototypeState.StateSaver) { mutableStateOf(PrototypeState()) }
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route ?: Routes.LOGIN
@@ -73,7 +87,6 @@ fun MoveSmartApp(openReminderRequest: Int = 0) {
     }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val androidContext = LocalContext.current
     val reminders = remember(androidContext) { ReminderService.get(androidContext) }
     // Replace this adapter with A's authenticated UserAccount.userId during account integration.
     val reminderUserId = "local-demo"
@@ -88,6 +101,15 @@ fun MoveSmartApp(openReminderRequest: Int = 0) {
         if (!auth && openReminderRequest > handledReminderRequest) {
             handledReminderRequest = openReminderRequest
             nav.navigate(Routes.REMINDERS) { launchSingleTop = true }
+        }
+    }
+    LaunchedEffect(currentUser, isDemoMode, route) {
+        val isLoginRoute = route == Routes.LOGIN || route == Routes.SIGN_UP
+        if (currentUser == null && !isDemoMode && !isLoginRoute) {
+            nav.navigate(Routes.LOGIN) {
+                popUpTo(nav.graph.id) { inclusive = true }
+                launchSingleTop = true
+            }
         }
     }
     fun notify(message: String) { scope.launch { snackbar.showSnackbar(message) } }
@@ -146,20 +168,30 @@ fun MoveSmartApp(openReminderRequest: Int = 0) {
         snackbarHost = { SnackbarHost(snackbar) },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        NavHost(nav, startDestination = Routes.LOGIN, modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+        NavHost(
+            nav,
+            startDestination = firstRoute,
+            modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
+        ) {
             composable(Routes.LOGIN) {
-                fun enterDemo() {
+                fun enterApp(demoMode: Boolean) {
+                    isDemoMode = demoMode
                     nav.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true }; launchSingleTop = true }
                 }
-                LoginScreen(onLogin = { email -> state.email = email; enterDemo() },
-                    onSignUp = { navigate(Routes.SIGN_UP) }, onExploreDemo = { enterDemo() })
+                LoginScreen(
+                    onLogin = { email -> state.email = email; enterApp(demoMode = false) },
+                    onSignUp = { navigate(Routes.SIGN_UP) },
+                    onExploreDemo = { enterApp(demoMode = true) },
+                    authViewModel = authViewModel
+                )
             }
             composable(Routes.SIGN_UP) {
                 SignUpScreen(onCreateAccount = { name, email ->
+                    isDemoMode = false
                     state.displayName = name; state.email = email
                     nav.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true }; launchSingleTop = true }
                     navigate(Routes.PREFERENCES)
-                }, onLogin = { nav.popBackStack() })
+                }, onLogin = { nav.popBackStack() }, authViewModel = authViewModel)
             }
             composable(Routes.HOME) {
                 HomeScreen(context, state.displayName, state.preferences.goal,
@@ -205,16 +237,24 @@ fun MoveSmartApp(openReminderRequest: Int = 0) {
                 intensity = state.preferences.intensity, activities = state.preferences.activities, goal = state.preferences.goal,
                 displayName = state.displayName, email = state.email, weeklyMinutes = state.preferences.weeklyMinutes,
                 reminderEnabled = state.reminder.enabled, onReminders = { navigate(Routes.REMINDERS) },
-                onStatistics = { selectTab(Routes.STATISTICS) }, onEditPreferences = { navigate(Routes.PREFERENCES) }) {
-                scope.launch {
-                    reminders.logout()
-                    state = PrototypeState()
-                    context.reset()
-                    // Clear saved tab stacks as well as the active stack when leaving a session.
-                    tabs.forEach { nav.clearBackStack(it.route) }
-                    nav.navigate(Routes.LOGIN) { popUpTo(nav.graph.id) { inclusive = true }; launchSingleTop = true }
-                }
-            } }
+                onStatistics = { selectTab(Routes.STATISTICS) }, onEditPreferences = { navigate(Routes.PREFERENCES) },
+                onLogout = {
+                    scope.launch {
+                        reminders.logout()
+                        withContext(Dispatchers.Main.immediate) {
+                            isDemoMode = false
+                            state = PrototypeState()
+                            context.reset()
+                            // Clear saved tab stacks as well as the active stack when leaving a session.
+                            tabs.forEach { nav.clearBackStack(it.route) }
+                            nav.navigate(Routes.LOGIN) {
+                                popUpTo(nav.graph.id) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                }, isDemoMode = isDemoMode, authViewModel = authViewModel,
+                preferencesViewModel = preferencesViewModel) }
         }
     }
 }
