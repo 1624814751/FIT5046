@@ -10,8 +10,8 @@
 
 ## Task 1 Baseline and configuration
 
-- [ ] Run `gradlew.bat --offline --no-daemon --no-configuration-cache :app:testDebugUnitTest` using Android Studio JBR 21. Expected: existing 22 tests pass.
-- [ ] Add pinned Room/KSP dependencies and test runtime to gradle/libs.versions.toml, root build.gradle.kts and app/build.gradle.kts. Enable Android resources for host tests; export schema under app/schemas. Keep IDE changes out of staged files.
+- [x] Run baseline tests using Android Studio JBR 21: existing 22 tests passed.
+- [x] Add pinned Room 2.8.5 / KSP 2.3.10 and test runtime. Export schema under app/schemas; preserve IDE changes. KSP was adjusted after a verified built-in Kotlin compatibility error.
 
 ## Task 2 Database contract tests before implementation
 
@@ -24,9 +24,9 @@ assertTrue(result.getOrThrow() > 0)
 assertEquals("Walk", repository.get("user-a", result.getOrThrow()).getOrThrow()!!.title)
 ```
 
-- [ ] Write cases for empty startup, persistent reopen, Flow ordering, update/delete, invalid records and foreign IDs.
-- [ ] Add minimal declarations and failing repository/validation stubs under data/local so tests compile.
-- [ ] Run the new tests and verify expected assertion failures for missing validation and writes. Keep this RED evidence.
+- [x] Write cases for empty startup, persistent reopen, Flow ordering, update/delete, invalid records and foreign IDs.
+- [x] Add minimal declarations and failing repository/validation stubs under data/local so tests compile.
+- [x] Verify meaningful RED: 11 tests, 8 failed before implementation.
 
 ## Task 3 Room implementation
 
@@ -41,8 +41,8 @@ interface WorkoutRepository {
 }
 ```
 
-- [ ] Replace the failing stubs with validated mapping and DAO calls; cancellation propagates.
-- [ ] Run the database and validation suite GREEN. Add the generated v1 schema to source control.
+- [x] Replace the failing stubs with validated mapping and DAO calls; cancellation propagates.
+- [x] Database and validation suite GREEN: 11 passed; generated v1 schema included.
 
 ## Task 4 ViewModel tests and implementation
 
@@ -54,20 +54,20 @@ assertFalse(viewModel.save(foreignUserRecord).isSuccess)
 assertFalse(viewModel.isSaving.value)
 ```
 
-- [ ] Write tests for observed records, read errors and retry, successful/failed writes, cancellation and duplicate-save gating.
-- [ ] Run tests RED with minimal state/write stubs, implement coroutine observation and finally-based busy clearing, then run GREEN.
+- [x] Write tests for observed records, read errors and retry, successful/failed writes, cancellation and duplicate-save gating.
+- [x] Verify RED (8 tests, 7 failed), implement and verify GREEN (8 passed).
 
 ## Task 5 Existing screen integration
 
 Modify navigation/MoveSmartApp.kt and ui/screens/WorkoutScreens.kt; change StatisticsScreen labels without changing D's chart implementation. Use lifecycle-aware state collection and a shared-record-to-legacy adapter. History and Search get the observed list; loading/error views have retry. Editor remains open on failure. Live saves explicitly DEMO data. Stop using PrototypeState.records and remove workout serialization from its saver.
 
-- [ ] Add a host/device regression for empty History and CRUD. Add Android database reopen and user isolation tests under androidTest.
-- [ ] Update prototype UI tests so their baseline is empty, not sampleRecords; use isolated test data for assertions.
-- [ ] Run build, all JVM tests, lint and Android test APK compilation. Attempt device checks safely without changing another project or deleting existing user data; report a blocked emulator truthfully.
+- [x] Host Compose regressions cover empty History, cancel, CRUD/search/statistics, read retry, failed save, duration boundaries and pending-write system Back. Device reopen/isolation test added.
+- [x] Prototype UI tests now use a debug-only Activity with a unique retained test database and asynchronous waits; no production workout test pollution.
+- [x] All 47 host tests, APK builds and lint verified; default configuration-cache build also verified. Device availability checked: no connected device, device execution pending. No existing emulator data was deleted.
 
 ## Task 6 Review and local handoff
 
-- [ ] Request independent read-only code review, repair significant findings and rerun checks.
-- [ ] Write docs/A4_MEMBER_C_ROOM.md and docs/AI_USAGE_MEMBER_C_ROOM.md with actual verification and integration limits. Include Member C's file-by-file learning map.
-- [ ] Stage only the feature, tests, schema, build configuration and docs; preserve .idea changes.
-- [ ] Create local commits using the existing Git identity. Verify `git status`, commit diff and `origin/member-c-dev` relationship. Stop ready for `git push origin member-c-dev`; do not perform it without a direct request.
+- [x] Independent read-only review completed; relevant findings repaired and regression-tested.
+- [x] Handoff/learning map and honest English AI-usage fragment written with actual verification limits.
+- [x] Stage only feature/test/schema/build files and handoff docs; preserve .idea changes and ignore local.properties.
+- [x] Local design/feature/handoff commits use the existing Git identity. Preserve member-c-dev at the ready-to-push checkpoint; no remote push or main merge performed. Device execution remains a pre-merge acceptance item.
