@@ -480,4 +480,115 @@ Demo preferences continue to use `PrototypeState`; they are not saved under a Fi
 - Member D can later replace `"local-demo"` with the observed Firebase UID after the team agrees on navigation/session ownership.
 - The existing navigation callback for email login only forwards the email to `PrototypeState`; therefore Home may keep its demo display name after an email login. Profile correctly uses `UserAccount`. Fixing Home requires a small D-owned navigation interface change and is left for team confirmation.
 
-Phase 2 weather/WorkManager and Phase 3 recommendation/motion work have not started.
+Phase 2 is now described below. Phase 3 recommendation/motion work has not started.
+
+## Phase 2 Implementation Status
+
+Implemented on `Shiya_dev`, tracking the school GitLab `origin/Shiya_dev` at `cb92241`.
+The old Phase 2 files on `main` were removed first. The Phase 1 source and its dependencies
+were checked before development. The normal Phase 1 build passed with Google Services
+resource generation enabled and 42 passing unit tests. The earlier audit sections above are
+historical; this section and the Phase 1 section describe the current code.
+
+### Real weather
+
+`WeatherProvider.getRepository(context)` returns one `OpenMeteoWeatherRepository` for the app.
+It implements the existing `observe(query)` and `refresh(query)` signatures. There are no
+changes to shared models, authentication, Credential Manager, or user preferences.
+
+The Retrofit service calls only [Open-Meteo](https://open-meteo.com/en/docs). It requests hourly
+temperature in Celsius, precipitation probability in percent and wind speed in km/h, with
+16 forecast days and the location's automatic time zone. Connect/read/whole-call timeouts are
+10/20/30 seconds. Invalid coordinates and clearly unsupported dates fail before a request.
+The response time zone gives the exact local forecast range: today through today plus 15 days.
+The requested date must also exist in the response. It never falls back to today's weather.
+
+The query has a date but no activity time, so the mapper selects **12:00 at the location on the
+planned date**. `WeatherContext.temperatureC` is that hour's forecast, not a current reading or
+daily average. Rain probability also covers snow/showers, because Open-Meteo reports
+precipitation probability. Missing rain/wind stays `null`; missing temperature or wrong units
+returns a clear error. `fetchedAt` is the fetch time. The shared model has no forecast-time field;
+the forecast time is the selected date at noon in the API's location time zone.
+
+### Repository and ViewModel use for Member D
+
+```kotlin
+val repository = WeatherProvider.getRepository(context.applicationContext)
+val query = WeatherQuery(
+    GeoLocation("Melbourne", -37.8136, 144.9631),
+    LocalDate.now(ZoneId.of("Australia/Melbourne"))
+)
+val result = repository.refresh(query) // Call inside a coroutine.
+```
+
+For Compose, use `WeatherViewModel.factory(context)`, matching Member A's factory pattern:
+
+```kotlin
+val weatherViewModel: WeatherViewModel = viewModel(factory = WeatherViewModel.factory(context))
+val weatherState by weatherViewModel.state.collectAsStateWithLifecycle()
+LaunchedEffect(query) { weatherViewModel.loadWeather(query) }
+```
+
+The shared `UiState` supplies Idle, Loading, Success and Error. Use `retryWeather()` from a
+button. A new query cancels the old load. After success, cache observation supplies worker
+updates and the stale boundary. `repository.observe(query)` is also available to other modules.
+The repository's observe flow loads saved weather without making a network request.
+
+The current form stores only location labels and UTC DatePicker milliseconds. It has no
+verified coordinate table. Member D must supply actual `GeoLocation` coordinates. A blank
+name, non-finite number, latitude outside -90..90 or longitude outside -180..180 is an error.
+Do not use 0,0 for a missing location: these are real coordinates. No geocoding or guessed
+label mapping was added.
+
+Convert the selected calendar date with the existing DatePicker convention:
+
+```kotlin
+val date = Instant.ofEpochMilli(selectedDateMillis).atZone(ZoneOffset.UTC).toLocalDate()
+val query = WeatherQuery(selectedLocationWithCoordinates, date)
+```
+
+Home, Find an Activity, Activity Details, navigation and the sample rain switch are unchanged.
+Member C's records, history and sensors are not used by weather. RecommendationEngine and
+RecommendationStore still belong to Phase 3.
+
+### Persistent cache
+
+`StoredWeatherCache` uses a separate SharedPreferences file named `weather_cache`, following
+the small storage pattern used for reminders. The existing user DataStore is untouched.
+It saves one successful result, including the full query and fetch time, on an IO dispatcher.
+A new store instance restores the saved data after restart. A different label, coordinate or
+date does not match. A new success replaces the single old entry. Broken stored JSON is ignored.
+
+`refresh` tries the network first and saves a successful response. A temporary failure can
+return matching cache. Invalid input and unsupported dates stay errors. No fake sunny result
+is returned. Cache age of one hour or more gives `isStale == true`. A future fetch time after a
+device clock change is also stale. Observation updates the stale flag after the one-hour limit.
+
+Show "Saved weather" when `source == DataSource.CACHE`, show the fetch time, and show
+"Old weather" when `isStale`. A cached success means no new network data was received.
+
+### WorkManager
+
+After a valid query loads, Member D can start work from a user event:
+
+```kotlin
+val work = WeatherWork(context.applicationContext)
+work.startWeatherWork(query)
+// When the plan ends or the account logs out:
+work.stopWeatherWork()
+```
+
+Work is unique under `weather-refresh`, uses `ExistingPeriodicWorkPolicy.UPDATE`, needs a
+connected network and has a 60-minute interval. Its first run is delayed 60 minutes to avoid
+repeating the foreground request. Starting again updates the selected query. WorkManager's
+database stores the complete query, so a restarted process needs no screen or ViewModel.
+The returned `Operation` reports enqueue/cancel results.
+
+`WeatherRefreshWorker` uses the same repository, Retrofit client and saved cache as the screen.
+Temporary errors and cache fallbacks return retry. Missing/invalid input and unsupported dates
+return failure. Once an expired query is outside the broad UTC date window, it makes no further
+network requests. Periodic work still remains registered until cancelled; stop or replace old
+plans. Dates are never advanced automatically. Android may delay the requested hourly run.
+
+No background schedule is started automatically because the current demo form supplies labels
+only. See [Phase 2 testing](MEMBER_A_PHASE2_TESTING.md) for actual results and device steps.
