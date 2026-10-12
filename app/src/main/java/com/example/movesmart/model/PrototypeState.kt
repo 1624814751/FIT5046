@@ -6,10 +6,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 
-/** A2 UI state survives recreation; it is not a database, account or notification scheduler. */
+/** Transient prototype UI state only. Workout records live in Room, not the saved-state bundle. */
 @Stable
 class PrototypeState(val today: LocalDate = LocalDate.now()) {
-    var records by mutableStateOf(sampleRecords(today))
     var reminder by mutableStateOf(ReminderSettings())
     var preferences by mutableStateOf(Preferences())
     var displayName by mutableStateOf("Alex")
@@ -18,23 +17,11 @@ class PrototypeState(val today: LocalDate = LocalDate.now()) {
     var activeIntensity by mutableStateOf("Medium")
     var activeWorkout by mutableStateOf("Outdoor Walk")
 
-    fun saveRecord(record: WorkoutRecord) {
-        records = if (records.any { it.id == record.id }) records.map { if (it.id == record.id) record else it }
-        else records + record
-    }
-    fun nextId(): Int = (records.maxOfOrNull { it.id } ?: 0) + 1
-
     companion object {
         val StateSaver = Saver<PrototypeState, String>(
             save = { state ->
                 JSONObject().apply {
                     put("today", state.today.toString())
-                    put("records", JSONArray().apply {
-                        state.records.forEach { record -> put(JSONObject().apply {
-                            put("id", record.id); put("title", record.title)
-                            put("minutes", record.minutes); put("date", record.date.toString())
-                        }) }
-                    })
                     put("reminder", JSONObject().apply {
                         put("enabled", state.reminder.enabled); put("label", state.reminder.label)
                         put("hour", state.reminder.hour); put("minute", state.reminder.minute)
@@ -51,10 +38,6 @@ class PrototypeState(val today: LocalDate = LocalDate.now()) {
             restore = { encoded ->
                 val json = JSONObject(encoded)
                 PrototypeState(LocalDate.parse(json.getString("today"))).apply {
-                    val rows = json.getJSONArray("records")
-                    records = (0 until rows.length()).map { index -> rows.getJSONObject(index).let {
-                        WorkoutRecord(it.getInt("id"), it.getString("title"), it.getInt("minutes"), LocalDate.parse(it.getString("date")))
-                    } }
                     val settings = json.getJSONObject("reminder")
                     val days = settings.getJSONArray("days")
                     reminder = ReminderSettings(settings.getBoolean("enabled"), settings.getString("label"), settings.getInt("hour"), settings.getInt("minute"),
