@@ -11,6 +11,7 @@ import com.example.movesmart.data.local.MoveSmartDatabase
 import com.example.movesmart.data.local.RoomWorkoutRepository
 import com.example.movesmart.navigation.MoveSmartApp
 import com.example.movesmart.shared.WorkoutRepository
+import com.example.movesmart.shared.DataSource
 import com.example.movesmart.shared.WorkoutRecord
 import com.example.movesmart.ui.screens.WorkoutEditorScreen
 import com.example.movesmart.ui.theme.MoveSmartTheme
@@ -109,6 +110,29 @@ class WorkoutRoomUiTest {
         assertTrue(runBlocking { repository.observe("local-demo").firstRows() }.isEmpty())
         statistics()
         compose.onNodeWithContentDescription("Weekly goal: 0 of 150 minutes").assertExists()
+    }
+
+    @Test fun statisticsPeriodsUseSavedRecordsAndExcludeOtherUsers() {
+        val today = LocalDate.now()
+        runBlocking {
+            repository.upsert(WorkoutRecord(0, "local-demo", "Today", 25, today, null, DataSource.LIVE)).getOrThrow()
+            repository.upsert(WorkoutRecord(0, "local-demo", "Last month", 40,
+                today.withDayOfMonth(1).minusDays(1), null, DataSource.LIVE)).getOrThrow()
+            repository.upsert(WorkoutRecord(0, "another-user", "Private workout", 99, today, null, DataSource.LIVE)).getOrThrow()
+        }
+        start()
+        statistics()
+        waitForText("Your week in motion")
+        tap("Day")
+        compose.onNodeWithText("Your day in motion").assertExists()
+        compose.onNodeWithText("1 sessions · 1 of 1 active days").assertExists()
+        compose.onNodeWithText("25").assertExists()
+        compose.onNodeWithText("99").assertDoesNotExist()
+        tap("Month")
+        compose.onNodeWithText("Your month in motion").assertExists()
+        tap("Previous")
+        compose.onNodeWithText("40").assertExists()
+        compose.onNodeWithText("99").assertDoesNotExist()
     }
 
     @Test fun failedSaveKeepsEditorInputAndShowsAnError() {

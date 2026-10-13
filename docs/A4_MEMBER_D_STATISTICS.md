@@ -8,9 +8,9 @@ Each view reports total minutes, session count, active days and a daily minutes 
 
 ## Integration boundary
 
-`ActivityStatisticsScreen` accepts shared records and the current user ID. Member C's `WorkoutRepository.observe(userId)` can supply those records after the repository and authenticated session are connected. Loading and repository failure handling must be implemented at that integration boundary; the current screen receives an already available list.
+`MoveSmartApp` now passes Member C's shared Room records directly from `WorkoutRecordsViewModel.state` into `ActivityStatisticsScreen`, together with `workoutUserId`. The legacy in-memory adapter has been removed. `WorkoutDataContent` supplies loading, failure and retry UI; observation uses lifecycle-aware collection. History edits/deletes and completed workouts update the same repository stream and therefore update all statistics periods.
 
-The existing navigation still calls `StatisticsScreen`, an explicit adapter from the A2 in-memory History list to shared records for `local-demo`. Sample-data labeling remains visible. Updating/deleting History entries updates statistics, but this does not add Room persistence or real authentication.
+These are saved local records, not preloaded samples. Authentication is still a separate integration: the main baseline defaults to `local-demo`, and A's Firebase implementation is currently on `Shiya_dev`. The current integration does not claim Firebase account switching is connected.
 
 ## Validation on 11 October 2026
 
@@ -19,4 +19,8 @@ The existing navigation still calls `StatisticsScreen`, an explicit adapter from
 - Android lint: zero errors, 14 warnings and 2 hints.
 - Device UI tests and visual verification of the new date controls/chart have not run. No new device-run success is claimed.
 
-Development is isolated on `member-d-statistics`, based on `4f1f056`. This branch contains the statistics milestone separately from the school-only README merge commit `bccd37b3`; integrate the reviewed main history before proposing the next merge. Publishing this separate branch does not update the existing school Draft MR !1. Android Studio may create local `.idea` changes when opening the project; those are separate from this feature.
+## Integration on 14 October 2026
+
+Development continues on `member-d-integration` in a separate checkout, merging school main `c429794` into the statistics history. This includes reviewed reminder fixes (MR !2) and Member C Room persistence (MR !3). The only merge conflict was the Statistics screen; daily/weekly/monthly controls are retained and the real Room stream supplies the records. No remote branches have been changed by this local integration.
+
+A new host Compose/Room test checks daily and previous-month totals with stored records and a second user's records. Existing Room UI tests cover edit/delete updates to weekly statistics. Validation of the integrated branch: debug APK and Android test APK built; all 57 host tests passed (zero failures/errors/skips), including the new Compose/Room period test and existing CRUD statistics test; lint completed successfully. Robolectric ran with a workspace-local user.home to allow dependency cache writes. No physical-device or emulator run is claimed. The 11 October results above are historical.
