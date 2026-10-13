@@ -17,6 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.movesmart.AccentInk
 import com.example.movesmart.AppAccent
 import com.example.movesmart.AppBackground
@@ -36,6 +38,11 @@ import com.example.movesmart.ButtonShape
 import com.example.movesmart.CardShape
 import com.example.movesmart.TextInk
 import com.example.movesmart.TextMuted
+import com.example.movesmart.shared.UiState
+import com.example.movesmart.ui.auth.AuthViewModel
+import com.example.movesmart.ui.preferences.PreferencesViewModel
+import com.example.movesmart.ui.preferences.environmentToText
+import com.example.movesmart.ui.preferences.intensityToText
 
 @Composable
 fun ProfileScreen(
@@ -49,9 +56,25 @@ fun ProfileScreen(
     onReminders: () -> Unit,
     onStatistics: () -> Unit,
     onEditPreferences: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    isDemoMode: Boolean,
+    authViewModel: AuthViewModel,
+    preferencesViewModel: PreferencesViewModel
 ) {
+    val authState by authViewModel.state.collectAsStateWithLifecycle()
+    val account by authViewModel.currentUser.collectAsStateWithLifecycle()
+    val preferencesState by preferencesViewModel.state.collectAsStateWithLifecycle()
     var confirmLogout by remember { mutableStateOf(false) }
+
+    val shownName = account?.displayName ?: displayName
+    val shownEmail = account?.email ?: email
+    val savedPreferences = preferencesState.preferences?.takeIf { it.userId == account?.userId }
+    val shownIntensity = savedPreferences?.let { intensityToText(it.preferredIntensity) } ?: intensity
+    val shownActivities = savedPreferences?.activityNames ?: activities
+    val shownGoal = savedPreferences?.goal ?: goal
+    val shownWeeklyMinutes = savedPreferences?.weeklyGoalMinutes ?: weeklyMinutes
+    val isAuthLoading = authState == UiState.Loading
+    val isLoading = isAuthLoading || preferencesState.isLoading
     Column(
         modifier = Modifier.fillMaxSize().background(AppBackground)
             .verticalScroll(rememberScrollState()).padding(24.dp),
@@ -69,11 +92,11 @@ fun ProfileScreen(
                         modifier = Modifier.size(64.dp).background(AppAccent, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(displayName.take(1).uppercase(), color = AccentInk, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        Text(shownName.take(1).uppercase(), color = AccentInk, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(displayName, color = TextInk, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        Text(email, color = TextMuted, fontSize = 14.sp)
+                        Text(shownName, color = TextInk, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        Text(shownEmail, color = TextMuted, fontSize = 14.sp)
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -91,15 +114,21 @@ fun ProfileScreen(
                 Text("Exercise Preferences", color = TextInk, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Preferred intensity", color = TextMuted, fontSize = 14.sp)
-                    Text(intensity, color = TextInk, fontSize = 16.sp)
+                    Text(shownIntensity, color = TextInk, fontSize = 16.sp)
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Preferred activities", color = TextMuted, fontSize = 14.sp)
-                    Text(activities.joinToString(", ").ifEmpty { "None selected" }, color = TextInk, fontSize = 16.sp)
+                    Text(shownActivities.joinToString(", ").ifEmpty { "None selected" }, color = TextInk, fontSize = 16.sp)
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Goal", color = TextMuted, fontSize = 14.sp)
-                    Text(goal, color = TextInk, fontSize = 16.sp)
+                    Text(shownGoal, color = TextInk, fontSize = 16.sp)
+                }
+                savedPreferences?.let {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Environment", color = TextMuted, fontSize = 14.sp)
+                        Text(environmentToText(it.environment), color = TextInk, fontSize = 16.sp)
+                    }
                 }
             }
         }
@@ -111,13 +140,23 @@ fun ProfileScreen(
         ) {
             Text("Edit Preferences", fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
-        Text("Weekly goal: $weeklyMinutes minutes", color = TextMuted)
+        Text("Weekly goal: $shownWeeklyMinutes minutes", color = TextMuted)
+        if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+        }
+        val errorMessage = (authState as? UiState.Error)?.message ?: preferencesState.errorMessage
+        if (errorMessage != null) {
+            Text(errorMessage, color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+        }
         OutlinedButton(onClick = onReminders, modifier = Modifier.fillMaxWidth()) {
             Text("Reminder settings · ${if (reminderEnabled) "On" else "Off"}")
         }
         OutlinedButton(onClick = onStatistics, modifier = Modifier.fillMaxWidth()) { Text("View statistics") }
         OutlinedButton(
-            onClick = { confirmLogout = true },
+            onClick = {
+                confirmLogout = true
+            },
+            enabled = !isAuthLoading,
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = ButtonShape,
             colors = ButtonDefaults.outlinedButtonColors(contentColor = AppPrimary)
@@ -126,8 +165,20 @@ fun ProfileScreen(
         }
     }
     if (confirmLogout) AlertDialog(onDismissRequest = { confirmLogout = false },
-        title = { Text("Leave the demo?") },
-        text = { Text("Your demo edits will be reset. You can explore again from the login screen.") },
-        confirmButton = { TextButton(onClick = { confirmLogout = false; onLogout() }) { Text("Log out") } },
+        title = { Text(if (isDemoMode) "Leave the demo?" else "Log out?") },
+        text = {
+            Text(
+                if (isDemoMode) "Your demo edits will be reset. You can explore again from the login screen."
+                else "Your saved preferences will stay on this device for your account."
+            )
+        },
+        confirmButton = { TextButton(onClick = {
+            confirmLogout = false
+            if (isDemoMode) {
+                onLogout()
+            } else {
+                authViewModel.logout(onSignedOut = onLogout)
+            }
+        }) { Text("Log out") } },
         dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("Cancel") } })
 }

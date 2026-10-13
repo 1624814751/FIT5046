@@ -10,7 +10,7 @@ Each view reports total minutes, session count, active days and a daily minutes 
 
 `MoveSmartApp` now passes Member C's shared Room records directly from `WorkoutRecordsViewModel.state` into `ActivityStatisticsScreen`, together with `workoutUserId`. The legacy in-memory adapter has been removed. `WorkoutDataContent` supplies loading, failure and retry UI; observation uses lifecycle-aware collection. History edits/deletes and completed workouts update the same repository stream and therefore update all statistics periods.
 
-These are saved local records, not preloaded samples. Authentication is still a separate integration: the main baseline defaults to `local-demo`, and A's Firebase implementation is currently on `Shiya_dev`. The current integration does not claim Firebase account switching is connected.
+These are saved local records, not preloaded samples. The local integration now consumes A's Firebase UID and preferences, while Explore demo uses a separate `local-demo` scope. Account changes rebuild the navigation state, cancel old record observation and reset pending planning work. Real Firebase sign-in still requires the team configuration and device verification.
 
 ## Validation on 11 October 2026
 
@@ -24,3 +24,5 @@ These are saved local records, not preloaded samples. Authentication is still a 
 Development continues on `member-d-integration` in a separate checkout, merging school main `c429794` into the statistics history. This includes reviewed reminder fixes (MR !2) and Member C Room persistence (MR !3). The only merge conflict was the Statistics screen; daily/weekly/monthly controls are retained and the real Room stream supplies the records. No remote branches have been changed by this local integration.
 
 A new host Compose/Room test checks daily and previous-month totals with stored records and a second user's records. Existing Room UI tests cover edit/delete updates to weekly statistics. Validation of the integrated branch: debug APK and Android test APK built; all 57 host tests passed (zero failures/errors/skips), including the new Compose/Room period test and existing CRUD statistics test; lint completed successfully. Robolectric ran with a workspace-local user.home to allow dependency cache writes. No physical-device or emulator run is claimed. The 11 October results above are historical.
+
+After integrating A branch `cde9ba3`, all 176 host tests passed and both APKs built; lint reported zero errors, 25 warnings and 2 hints. A new account-switch test verifies separate Room totals for two Firebase-style UIDs, reminder scope changes, and return to Login on logout. The test injects authentication; real Firebase credentials and device checks remain pending. A stale login-success navigation bug and an asynchronous preference-save account race were corrected during integration.

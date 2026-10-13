@@ -2,13 +2,15 @@
 
 FIT5046 MoveSmart A4 development, based on the team's integrated A2 Compose prototype.
 
-Member D milestone 1 adds persistent, user-scoped reminder settings, AlarmManager scheduling, notification permissions/channels, cancellation, calendar-based repeats and restore handling. Activity Details now links to Reminder Settings. The current account adapter is explicitly `local-demo`; Member A's authenticated user ID will replace it during integration. See [the reminder implementation and verification notes](docs/A4_MEMBER_D_REMINDERS.md).
+Member D milestone 1 adds persistent, user-scoped reminder settings, AlarmManager scheduling, notification permissions/channels, cancellation, calendar-based repeats and restore handling. Activity Details now links to Reminder Settings. Signed-in reminders use Member A's Firebase UID; Explore demo uses `local-demo`. See [the reminder implementation and verification notes](docs/A4_MEMBER_D_REMINDERS.md).
 
 The `member-d-dev` branch integrates the team's A2 screens: member A's account/profile/preferences (`f611cd0`), member B's context-aware planning (`075a39c`), member C's Live Activity/History baseline (`6534891`), and member D's reminders/statistics/navigation (`59f6c39`). See the [integration record](docs/TEAM_INTEGRATION.md) for provenance and the small adaptations between modules.
 
 Open this folder in Android Studio. On the Login screen, **Explore demo** enters the app without credentials. Use Home / History / Statistics / Profile in the bottom bar. Reminder settings are available from Home and Profile. Home → Find an activity → Activity details → Start activity → Live workout → History is the main demo flow. The context form includes a DatePicker, four dropdowns and a sample rain toggle. Recommendations respect the selected time, location and indoor/outdoor context. Saved profile intensity feeds the form; the weekly target and history records feed Statistics.
 
-Authentication, workout records, weather and movement still use A2 demo data: real authentication, Room, Retrofit and WorkManager remain integration work. Reminder settings and scheduling now use Android services and device storage; device-level verification of this new milestone is still pending. Existing A2 verification documents describe the September baseline, not this change.
+On the local `member-d-integration` branch, signed-in sessions use Member A authentication and preferences, and Member C Room records. Find an Activity loads real Open-Meteo weather for Melbourne city centre and the selected date, saves a user-scoped recommendation, then opens details by ID. Home reflects the loaded forecast. Reminder scope and Statistics use the Firebase UID; Explore demo is separate. Live workout/sensor playback still requires C integration and its current sample completion is explicitly labelled.
+
+Supply the team Firebase configuration as `app/google-services.json` to enable real Firebase login. Without it, the application builds with an explicit authentication configuration error and Explore demo remains available; no replacement Firebase project or credentials are created. Google sign-in also requires the team's client/SHA configuration. Device-level end-to-end verification remains pending.
 
 - [Team integration, module sources and current report alignment](docs/TEAM_INTEGRATION.md)
 - [Original A2 requirements, rubric, allocation audit and merge instructions](docs/A2_REVIEW_AND_HANDOFF.md)
@@ -29,3 +31,9 @@ The school GitLab repository defaults to `main`. For the shared baseline merge r
 ## AI Assistance Declaration
 
 I used AI (ChatGPT/Codex) to help design and build the architecture of the MoveSmart app prototype, including screen organisation, shared state and navigation. AI also assisted with generating and refining parts of the Jetpack Compose code, debugging, improving code structure and UI consistency, and writing and running unit and UI tests. These tools supported the development and testing of the A2 skeleton prototype. A more detailed account of the assistance is available in the [AI usage record](docs/AI_USAGE_THIS_SESSION.md).
+
+## Local A/C/D integration verification
+
+The integration branch merges school main `c429794` (C Room and the reviewed reminder fixes) and A branch `cde9ba3`. It preserves original author history. Supported real planning currently uses the Melbourne city-centre coordinates from A's interface guide; additional verified locations remain a follow-up. Every saved plan receives a unique session ID, avoiding overwrite for repeated inputs. Weather failure is not replaced with simulated weather; cached/stale forecasts remain labelled. The background interval and real Firebase sign-in still need device verification with team configuration.
+
+Validation on 14 October 2026 after A integration: debug app and Android test APK built; all 176 host tests passed (zero failures, errors or skips); lint completed with zero errors, 25 warnings and 2 hints. New tests cover saved-plan persistence/failures/cancellation and account switching through Room-backed Statistics, reminders and logout. These are host/Robolectric results, not a real Firebase or device end-to-end run.

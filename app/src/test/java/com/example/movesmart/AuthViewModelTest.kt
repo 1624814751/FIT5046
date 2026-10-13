@@ -1,0 +1,217 @@
+package com.example.movesmart
+
+import android.app.Activity
+import com.example.movesmart.data.remote.GoogleLoginCancelledException
+import com.example.movesmart.data.remote.GoogleLoginProvider
+import com.example.movesmart.shared.AuthRepository
+import com.example.movesmart.shared.UiState
+import com.example.movesmart.shared.UserAccount
+import com.example.movesmart.ui.auth.AuthViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class AuthViewModelTest {
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @Test
+    fun loginErrorIsShown() = runTest(mainDispatcherRule.dispatcher) {
+        val repository = FakeAuthRepository().apply {
+            loginResult = Result.failure(IllegalStateException("Wrong email or password."))
+        }
+        val viewModel = AuthViewModel(repository, FakeGoogleLoginProvider())
+
+        viewModel.login("alex@example.com", "password")
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertTrue(state is UiState.Error)
+        assertEquals("Wrong email or password.", (state as UiState.Error).message)
+    }
+
+    @Test
+    fun successfulLoginUpdatesCurrentUser() = runTest(mainDispatcherRule.dispatcher) {
+        val repository = FakeAuthRepository()
+        val viewModel = AuthViewModel(repository, FakeGoogleLoginProvider())
+
+        viewModel.login("alex@example.com", "password")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value is UiState.Success)
+        assertEquals("user-a", viewModel.currentUser.value?.userId)
+    }
+
+    @Test
+    fun successfulSignupUpdatesCurrentUser() = runTest(mainDispatcherRule.dispatcher) {
+        val viewModel = AuthViewModel(FakeAuthRepository(), FakeGoogleLoginProvider())
+
+        viewModel.signup("Alex", "alex@example.com", "long-password", "long-password")
+        advanceUntilIdle()
+
+        assertEquals("Alex", viewModel.currentUser.value?.displayName)
+        assertTrue(viewModel.state.value is UiState.Success)
+    }
+
+    @Test
+    fun logoutClearsCurrentUser() = runTest(mainDispatcherRule.dispatcher) {
+        val repository = FakeAuthRepository()
+        val googleProvider = FakeGoogleLoginProvider()
+        val viewModel = AuthViewModel(repository, googleProvider)
+        viewModel.login("alex@example.com", "password")
+        advanceUntilIdle()
+        var signedOut = false
+
+        viewModel.logout { signedOut = true }
+        advanceUntilIdle()
+
+        assertNull(viewModel.currentUser.value)
+        assertTrue(signedOut)
+        assertEquals(1, repository.signOutCalls)
+        assertEquals(1, googleProvider.clearCalls)
+        assertEquals(UiState.Idle, viewModel.state.value)
+    }
+
+    @Test
+    fun logoutErrorKeepsUserAndEndsLoading() = runTest(mainDispatcherRule.dispatcher) {
+        val repository = FakeAuthRepository().apply {
+            signOutResult = Result.failure(IllegalStateException("Could not sign out."))
+        }
+        val viewModel = AuthViewModel(repository, FakeGoogleLoginProvider())
+        viewModel.login("alex@example.com", "password")
+        advanceUntilIdle()
+        var signedOut = false
+
+        viewModel.logout { signedOut = true }
+        advanceUntilIdle()
+
+        assertEquals("user-a", viewModel.currentUser.value?.userId)
+        assertFalse(signedOut)
+        assertTrue(viewModel.state.value is UiState.Error)
+        assertEquals("Could not sign out.", (viewModel.state.value as UiState.Error).message)
+    }
+
+    @Test
+    fun userCanLoginAgainAfterLogout() = runTest(mainDispatcherRule.dispatcher) {
+        val viewModel = AuthViewModel(FakeAuthRepository(), FakeGoogleLoginProvider())
+        viewModel.login("alex@example.com", "password")
+        advanceUntilIdle()
+        viewModel.logout()
+        advanceUntilIdle()
+
+        viewModel.login("alex@example.com", "password")
+        advanceUntilIdle()
+
+        assertEquals("user-a", viewModel.currentUser.value?.userId)
+        assertTrue(viewModel.state.value is UiState.Success)
+    }
+
+    @Test
+    fun repeatedLogoutRequestRunsOnlyOnce() = runTest(mainDispatcherRule.dispatcher) {
+        val repository = FakeAuthRepository()
+        val viewModel = AuthViewModel(repository, FakeGoogleLoginProvider())
+        viewModel.login("alex@example.com", "password")
+        advanceUntilIdle()
+
+        viewModel.logout()
+        viewModel.logout()
+        advanceUntilIdle()
+
+        assertEquals(1, repository.signOutCalls)
+    }
+
+    @Test
+    fun credentialClearErrorStillFinishesSecureLogout() = runTest(mainDispatcherRule.dispatcher) {
+        val provider = FakeGoogleLoginProvider(
+            clearResult = Result.failure(IllegalStateException("Credential clear failed."))
+        )
+        val viewModel = AuthViewModel(FakeAuthRepository(), provider)
+        viewModel.login("alex@example.com", "password")
+        advanceUntilIdle()
+        var signedOut = false
+
+        viewModel.logout { signedOut = true }
+        advanceUntilIdle()
+
+        assertNull(viewModel.currentUser.value)
+        assertTrue(signedOut)
+        assertTrue(viewModel.state.value is UiState.Error)
+        assertEquals(
+            "You are signed out, but the Google sign-in session could not be cleared.",
+            (viewModel.state.value as UiState.Error).message
+        )
+    }
+
+    @Test
+    fun googleCancellationClearsLoadingState() = runTest(mainDispatcherRule.dispatcher) {
+        val provider = FakeGoogleLoginProvider(
+            Result.failure(GoogleLoginCancelledException())
+        )
+        val viewModel = AuthViewModel(FakeAuthRepository(), provider)
+
+        viewModel.loginWithGoogle(Activity())
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value is UiState.Error)
+        assertEquals("Google login was cancelled.", (viewModel.state.value as UiState.Error).message)
+    }
+}
+
+private class FakeGoogleLoginProvider(
+    private val result: Result<String> = Result.success("test-token"),
+    private val clearResult: Result<Unit> = Result.success(Unit)
+) : GoogleLoginProvider {
+    var clearCalls = 0
+
+    override suspend fun getIdToken(activity: Activity): Result<String> = result
+    override suspend fun clear(): Result<Unit> {
+        clearCalls += 1
+        return clearResult
+    }
+}
+
+private class FakeAuthRepository : AuthRepository {
+    private val userFlow = MutableStateFlow<UserAccount?>(null)
+    override val currentUser: StateFlow<UserAccount?> = userFlow
+    var loginResult: Result<UserAccount> = Result.success(
+        UserAccount("user-a", "Alex", "alex@example.com")
+    )
+    var signOutResult: Result<Unit> = Result.success(Unit)
+    var signOutCalls = 0
+
+    override suspend fun signIn(email: String, password: String): Result<UserAccount> {
+        loginResult.getOrNull()?.let { userFlow.value = it }
+        return loginResult
+    }
+
+    override suspend fun signUp(
+        displayName: String,
+        email: String,
+        password: String
+    ): Result<UserAccount> {
+        val account = UserAccount("user-a", displayName, email)
+        userFlow.value = account
+        return Result.success(account)
+    }
+
+    override suspend fun signInWithGoogle(idToken: String): Result<UserAccount> {
+        return signIn("alex@example.com", "google")
+    }
+
+    override suspend fun signOut(): Result<Unit> {
+        signOutCalls += 1
+        if (signOutResult.isSuccess) {
+            userFlow.value = null
+        }
+        return signOutResult
+    }
+}
