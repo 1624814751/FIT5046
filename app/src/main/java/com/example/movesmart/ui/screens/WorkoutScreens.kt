@@ -26,7 +26,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 
 // Member C screens extracted from MainActivity and connected through callbacks.
 @Composable
-fun LiveActivityScreen(activity: String, intensity: String, plannedMinutes: Int, onFinish: () -> Unit) {
+fun LiveActivityScreen(activity: String, intensity: String, plannedMinutes: Int, isSaving: Boolean = false, errorMessage: String? = null, onFinish: () -> Unit) {
     val sessionMinutes = sampleSessionMinutes(activity, plannedMinutes)
     var paused by rememberSaveable { mutableStateOf(false) }
     var confirmFinish by rememberSaveable { mutableStateOf(false) }
@@ -48,7 +48,8 @@ fun LiveActivityScreen(activity: String, intensity: String, plannedMinutes: Int,
         }
         Text("Listen to your body. Pause whenever you need a break.")
         OutlinedButton({ paused = !paused }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(if (paused) "Resume workout" else "Pause workout") }
-        PrimaryButton("Finish workout", { confirmFinish = true })
+        errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        PrimaryButton(if (isSaving) "Saving…" else "Finish workout", { confirmFinish = true }, enabled = !isSaving)
     }
     if (confirmFinish) AlertDialog(onDismissRequest = { confirmFinish = false }, title = { Text("Save this session?") },
         text = { Text("Add this $sessionMinutes-minute sample session to History and Statistics.") },
@@ -57,7 +58,7 @@ fun LiveActivityScreen(activity: String, intensity: String, plannedMinutes: Int,
 }
 
 @Composable
-fun HistoryScreen(records: List<WorkoutRecord>, onAdd: () -> Unit, onEdit: (Int) -> Unit, onDelete: (Int) -> Unit, onSearch: () -> Unit, onStatistics: () -> Unit) {
+fun HistoryScreen(records: List<WorkoutRecord>, onAdd: () -> Unit, onEdit: (Int) -> Unit, onDelete: (Int) -> Unit, onSearch: () -> Unit, onStatistics: () -> Unit, isSaving: Boolean = false) {
     val locale = LocalConfiguration.current.locales[0]
     var deleting by remember { mutableStateOf<WorkoutRecord?>(null) }
     LazyColumn(
@@ -65,8 +66,8 @@ fun HistoryScreen(records: List<WorkoutRecord>, onAdd: () -> Unit, onEdit: (Int)
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item { SectionHeading("Every session counts", "Your movement, all in one place.") }
-        item { SampleDataNote() }
-        item { PrimaryButton("Add workout", onAdd) }
+        item { Text("Saved on this device · Demo account", style = MaterialTheme.typography.labelMedium) }
+        item { PrimaryButton("Add workout", onAdd, enabled = !isSaving) }
         item { Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onSearch, Modifier.weight(1f)) { Text("Search") }
             OutlinedButton(onStatistics, Modifier.weight(1f)) { Text("Statistics") }
@@ -77,24 +78,24 @@ fun HistoryScreen(records: List<WorkoutRecord>, onAdd: () -> Unit, onEdit: (Int)
                 Text(record.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text("${record.minutes} min · ${record.date.format(DateTimeFormatter.ofPattern("d MMM yyyy", locale))}", style = MaterialTheme.typography.bodyMedium)
                 Row {
-                    TextButton({ onEdit(record.id) }) { Icon(Icons.Outlined.Edit, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("Edit") }
+                    TextButton({ onEdit(record.id) }, enabled = !isSaving) { Icon(Icons.Outlined.Edit, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("Edit") }
                     Spacer(Modifier.weight(1f))
-                    TextButton({ deleting = record }) { Icon(Icons.Outlined.DeleteOutline, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("Delete") }
+                    TextButton({ deleting = record }, enabled = !isSaving) { Icon(Icons.Outlined.DeleteOutline, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("Delete") }
                 }
             }
         }
     }
     deleting?.let { record ->
         AlertDialog(onDismissRequest = { deleting = null }, title = { Text("Delete this workout?") },
-            text = { Text("${record.title}, ${record.minutes} min will be removed from this demo's history and statistics.") },
-            confirmButton = { TextButton({ onDelete(record.id); deleting = null }) { Text("Delete") } },
+            text = { Text("${record.title}, ${record.minutes} min will be removed from your saved history and statistics.") },
+            confirmButton = { TextButton({ onDelete(record.id); deleting = null }, enabled = !isSaving) { Text("Delete") } },
             dismissButton = { TextButton({ deleting = null }) { Text("Cancel") } })
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkoutEditorScreen(record: WorkoutRecord?, today: LocalDate, onSave: (String, Int, LocalDate) -> Unit) {
+fun WorkoutEditorScreen(record: WorkoutRecord?, today: LocalDate, isSaving: Boolean = false, errorMessage: String? = null, onCancel: (() -> Unit)? = null, onSave: (String, Int, LocalDate) -> Unit) {
     val locale = LocalConfiguration.current.locales[0]
     var title by rememberSaveable(record?.id) { mutableStateOf(record?.title ?: "Outdoor Walk") }
     var minutes by rememberSaveable(record?.id) { mutableStateOf(record?.minutes?.toString() ?: "30") }
@@ -102,17 +103,19 @@ fun WorkoutEditorScreen(record: WorkoutRecord?, today: LocalDate, onSave: (Strin
     var picker by rememberSaveable { mutableStateOf(false) }
     var attempted by rememberSaveable { mutableStateOf(false) }
     val date = LocalDate.parse(dateText)
-    val invalidMinutes = minutes.toIntOrNull()?.let { it !in 1..600 } ?: true
+    val invalidMinutes = minutes.toIntOrNull()?.let { it !in 1..1440 } ?: true
     ScreenColumn {
         SectionHeading(if (record == null) "Record your movement" else "Update your session", "Your changes also update Statistics.")
-        ChoiceField("Activity", title, listOf("Outdoor Walk", "Outdoor Jogging", "Indoor Cycling", "Yoga", "Mobility", "Indoor Mobility"), { title = it })
+        ChoiceField("Activity", title, listOf("Outdoor Walk", "Outdoor Jogging", "Indoor Cycling", "Yoga", "Mobility", "Indoor Mobility"), { if (!isSaving) title = it })
         OutlinedTextField(minutes, { minutes = it }, label = { Text("Duration (minutes)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), isError = attempted && invalidMinutes,
-            supportingText = { Text("Enter a whole number from 1 to 600.") }, modifier = Modifier.fillMaxWidth())
+            supportingText = { Text("Enter a whole number from 1 to 1440.") }, enabled = !isSaving, modifier = Modifier.fillMaxWidth())
         Text("Workout date", style = MaterialTheme.typography.titleMedium)
-        OutlinedButton({ picker = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.CalendarToday, contentDescription = null); Spacer(Modifier.width(12.dp)); Text(date.format(DateTimeFormatter.ofPattern("d MMM yyyy", locale))) }
+        OutlinedButton({ picker = true }, enabled = !isSaving, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.CalendarToday, contentDescription = null); Spacer(Modifier.width(12.dp)); Text(date.format(DateTimeFormatter.ofPattern("d MMM yyyy", locale))) }
         if (attempted && date.isAfter(today)) Text("Choose today or an earlier date.", color = MaterialTheme.colorScheme.error)
-        PrimaryButton("Save workout", { attempted = true; if (!invalidMinutes && !date.isAfter(today)) onSave(title, minutes.toInt(), date) })
+        errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        PrimaryButton(if (isSaving) "Saving…" else "Save workout", { attempted = true; if (!invalidMinutes && !date.isAfter(today)) onSave(title, minutes.toInt(), date) }, enabled = !isSaving)
+        onCancel?.let { OutlinedButton(it, enabled = !isSaving, modifier = Modifier.fillMaxWidth()) { Text("Cancel") } }
     }
     if (picker) {
         // Material DatePicker represents calendar dates at UTC midnight.

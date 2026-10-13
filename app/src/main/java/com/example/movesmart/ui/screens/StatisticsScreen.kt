@@ -14,8 +14,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.movesmart.model.WorkoutRecord
-import com.example.movesmart.shared.DataSource
 import com.example.movesmart.shared.WorkoutRecord as SharedWorkoutRecord
 import com.example.movesmart.statistics.*
 import com.example.movesmart.ui.components.*
@@ -23,15 +21,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-
-// Temporary A2 adapter: History and Statistics still use the same in-memory records.
-@Composable
-fun StatisticsScreen(records: List<WorkoutRecord>, weeklyGoal: Int, today: LocalDate, onHistory: () -> Unit) {
-    val shared = records.map {
-        SharedWorkoutRecord(it.id, "local-demo", it.title, it.minutes, it.date, null, DataSource.DEMO)
-    }
-    ActivityStatisticsScreen(shared, "local-demo", weeklyGoal, today, true, onHistory)
-}
 
 // A4 boundary: supply records from C's user-scoped WorkoutRepository.observe(userId).
 @OptIn(ExperimentalMaterial3Api::class)

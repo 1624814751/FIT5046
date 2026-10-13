@@ -1,4 +1,4 @@
-# MoveSmart
+# MoveSmart — Group 114
 
 FIT5046 MoveSmart A4 development, based on the team's integrated A2 Compose prototype.
 
