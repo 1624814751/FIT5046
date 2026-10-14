@@ -1,10 +1,12 @@
 # Member C — Sensor Playback and Live Workout Handoff
 
-## 1. Status and deliberate stop point
+## 1. Status and remaining team boundary
 
-Member C's isolated sensor milestone is implemented on `member-c-dev` and is ready for team review. It includes an attributed UCI HAPT dataset subset, strict CSV playback, motion-band classification, a real active-time session timer, pause/resume, retry/error state, a non-medical high-movement prompt, and a Compose Live Activity component for the new state.
+Member C's sensor milestone is implemented on `member-c-dev` and is ready for team review. It includes an attributed UCI HAPT dataset subset, strict CSV playback, motion-band classification, a real active-time session timer, pause/resume, retry/error state, a non-medical high-movement prompt, the Compose Live Activity UI, and Room persistence of one measured demo session.
 
-The new component is **not yet connected to the production `Routes.LIVE` destination**. `MoveSmartApp.kt` still calls the legacy A2 Live Activity overload and still scopes workout records to `local-demo`. This is intentional: that file is the current integration hotspot for Member A's authentication/recommendation flow, Member C's workout/sensor flow, and Member D's navigation/statistics flow. It should be changed once by the team rather than independently on three branches.
+The component is now connected to `Routes.LIVE` for the explicit demo flow. `MoveSmartApp.kt` injects the production CSV repository, observes `LiveWorkoutViewModel`, saves the measured summary through Room, prevents duplicate submissions and navigates only after a successful write. The old fixed timer and `112 bpm` overload have been removed.
+
+Workout records are still deliberately scoped to `local-demo`, and signed-in accounts still see the existing “Workout demo only” boundary. Extending workout ownership to Firebase users and replacing the prototype recommendation strings remain A/D team decisions; this Member C milestone does not silently cross that account boundary.
 
 Do not claim that public-dataset playback is the phone user's live sensor measurement. Every emitted sample and saved playback session must remain `DataSource.DEMO`.
 
@@ -29,13 +31,14 @@ Dataset: *Human Activity Recognition Using Smartphones* / UCI HAPT data, DOI `10
 
 ### Live UI and tests
 
-- `ui/screens/WorkoutScreens.kt` — new state-driven `LiveActivityScreen` overload
+- `ui/screens/WorkoutScreens.kt` — state-driven `LiveActivityScreen`
+- `navigation/MoveSmartApp.kt` — explicit-demo Live/Room integration
 - `CsvSensorRepositoryTest.kt`
 - `MotionWindowClassifierTest.kt`
 - `LiveWorkoutViewModelTest.kt`
 - `LiveActivityScreenTest.kt`
 
-The older `LiveActivityScreen(activity, intensity, plannedMinutes, ...)` overload remains temporarily so the shared navigation branch still compiles before integration. D should remove it after the production route uses the state-driven overload and the older navigation/UI tests have been updated.
+The older `LiveActivityScreen(activity, intensity, plannedMinutes, ...)` overload and fake heart-rate UI have been removed. Existing navigation/Room tests now exercise the state-driven screen.
 
 ## 3. Public contracts for integration
 
@@ -108,43 +111,43 @@ Call the existing `WorkoutRecordsViewModel.save(record)` and navigate to History
 
 ## 4. Required Member A decisions and changes
 
-Member A should confirm the production identity and recommendation inputs before D edits the route:
+Member A should confirm the production identity and recommendation inputs before the team extends the current explicit-demo route:
 
 1. Use `authViewModel.currentUser.value?.userId` for authenticated workout ownership. Do not silently write authenticated records under `local-demo`.
 2. Pass the selected stored `Recommendation.id` into the details/Live navigation flow, then load it through `RecommendationViewModel.loadRecommendation(id)` or provide the already validated `Recommendation` state. Do not reconstruct a production recommendation from the old `PrototypeState` strings.
 3. Decide whether UCI playback is available only in explicit demo mode or may be demonstrated by a signed-in user. In either case, its saved source remains `DataSource.DEMO`.
 4. If sensor context should influence a later recommendation refresh, collect `MotionContext` in A's lifecycle-aware recommendation layer and pass it to `generateRecommendation(..., motion)`. Do not copy or reimplement C's CSV player.
 
-## 5. Required Member D navigation/statistics changes
+## 5. Member D review and remaining navigation/statistics changes
 
-Member D owns the single integration edit in `MoveSmartApp.kt`:
+The scoped Live integration edit is now implemented on Member C's branch. Member D should review it because `MoveSmartApp.kt` remains D's navigation hotspot. Completed items are sensor dependency injection, lifecycle-aware Live state collection, measured-summary saving, duplicate-submit prevention and History navigation after success.
 
-1. Add an injectable `SensorRepository` with the Android asset implementation as the production default.
-2. Create/obtain one `LiveWorkoutViewModel` for the active Live destination and collect its state lifecycle-safely.
-3. Call the new state-driven `LiveActivityScreen` overload.
-4. On confirmed Finish, use `LiveWorkoutViewModel.summary()` and save once through the existing `WorkoutRecordsViewModel`.
-5. Scope `WorkoutRecordsViewModel` to the resolved account/demo user ID and ensure an account change creates the correct user-scoped model rather than exposing the previous user's flow.
-6. Keep Statistics reading the same `WorkoutRepository.observe(userId)` stream. No separate statistics database or copied list is required.
-7. After integration, remove the legacy Live overload and replace old screenshot/navigation assertions that expect the A2 fake timer or `112 bpm`.
+Remaining review/integration items:
 
-## 6. Verification completed on 14 October 2026
+1. Preserve D's reminder routes and bottom-navigation behavior when reviewing or merging the Live diff.
+2. After A confirms the account policy, scope `WorkoutRecordsViewModel` to the resolved account/demo user ID and ensure an account change creates the correct user-scoped model rather than exposing the previous user's flow.
+3. Keep Statistics reading the same `WorkoutRepository.observe(userId)` stream. No separate statistics database or copied list is required.
+4. Update any presentation screenshots that still show the A2 fixed timer or `112 bpm`.
+
+## 6. Verification completed on 15 October 2026
 
 Environment: Windows PowerShell, Android Studio JBR, Gradle wrapper 9.5.0.
 
 ```text
 :app:testDebugUnitTest
 BUILD SUCCESSFUL
-24 test suites; 209 tests; 0 failures; 0 errors; 0 skipped
+24 test suites; 210 tests; 0 failures; 0 errors; 0 skipped
 
-:app:lintDebug :app:assembleDebug
+:app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
 BUILD SUCCESSFUL
 Lint: 0 errors, 24 existing warnings, 2 hints
 Debug APK: app/build/outputs/apk/debug/app-debug.apk
+Android-test APK: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 ```
 
 The first offline lint attempt stopped before analysis because `androidx.concurrent:concurrent-futures-ktx:1.1.0` was not cached. Re-running online downloaded the dependency and completed successfully. The lint XML contains no finding located in the new Member C sensor/ViewModel/Live-screen files.
 
-These are host/build checks. Emulator/device navigation, real Firebase sign-in, complete recommendation-to-Live navigation, session saving, account switching, notification interaction and final Statistics display still require manual team acceptance after the integration edit.
+`adb devices -l` returned no connected devices. These are therefore host/build checks, not device-test evidence. Emulator navigation, real Firebase sign-in, visible changing sensor values, pause/resume, final History/Statistics display, account switching and notification interaction still require manual team acceptance.
 
 `app/google-services.json` is present only in the developer's local checkout and is excluded through `.git/info/exclude`; it is not part of Member C's commits.
 
@@ -152,10 +155,10 @@ These are host/build checks. Emulator/device navigation, real Firebase sign-in, 
 
 1. A and D review the public contracts and the production identity/recommendation decisions above.
 2. Review Member C commits on `member-c-dev`; preserve commit authorship and do not squash unless the teaching team explicitly requires it.
-3. D makes the single navigation integration change on the agreed integration branch, with A and C reviewing the relevant identity/recommendation/save lines.
-4. Run the complete host tests, lint and debug build again.
+3. D reviews the scoped `MoveSmartApp.kt` diff; A and C review the relevant identity/recommendation/save lines.
+4. After any team changes, run the complete host tests, lint and both APK builds again.
 5. Run the end-to-end emulator path: sign in or enter explicit demo mode → create/select recommendation → start Live → observe changing UCI readings → pause/resume → trigger a HIGH prompt → finish once → verify History → verify Statistics → switch/logout account and confirm isolation.
-6. Merge to `main` only after the team accepts that path. Do not merge this branch based only on the isolated tests above.
+6. Merge to `main` only after the team accepts that path. Do not merge this branch based only on host tests.
 
 ## 8. Feature commits
 
@@ -164,5 +167,6 @@ These are host/build checks. Emulator/device navigation, real Firebase sign-in, 
 - `954e604` — CSV repository implementing `SensorRepository`
 - `70773d6` — Live workout state, timer, pause and retry
 - `4bd33c8` — state-driven Live Activity UI
+- `54c9d0a` — Live navigation and measured Room record integration
 
 The branch also contains the earlier Member C Room/CRUD work and the merge from current `main` (`6eee53e`) used for compatibility verification.
