@@ -24,9 +24,9 @@ The app and Android test APK compile. All 22 JVM tests pass (the 11 existing tes
 
 New JVM tests cover same-day scheduling, past/equal trigger times, weekday rollover, midnight, disabled/invalid settings, Melbourne daylight-saving transitions and an independent saved time zone. The existing UI tests were updated for the new default-off and persistent reminder behavior.
 
-Six device integration tests compile and are ready in `ReminderIntegrationTest`: persistence/user isolation; edit/cancel; account switching/logout; the restore path; explicit PendingIntent delivery through the receiver and notification manager (independent of inexact alarm timing); and the silent channel. They have NOT been executed in this environment. The installed emulator fails before Android boots (`Illegal instruction` in headless mode and a Qt `neon` compatibility error in windowed mode). The failure is in the host emulator, not evidence of an application test failure or success.
+On 14 October 2026, all six `ReminderIntegrationTest` tests passed on a clean Pixel 9 (2) API 37 emulator launched through Android Studio's Running Devices panel: persistence/user isolation, edit/cancel, account switching/logout, restore path, direct PendingIntent receiver/notification delivery, and silent channel. Earlier command-line emulator launches failed before boot; the Android Studio launch succeeded. This is not evidence of actual timed AlarmManager delivery or a physical reboot. The separate `WorkoutDatabaseIntegrationTest` also passed, checking persistence after reopening and rejection of cross-user reads/updates/deletes.
 
-Run on an API 36+ emulator/device after resolving that host issue:
+To repeat on a working API 36+ emulator/device:
 
 ```sh
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:assembleDebugAndroidTest
