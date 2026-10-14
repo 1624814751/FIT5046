@@ -37,3 +37,19 @@ I used AI (ChatGPT/Codex) to help design and build the architecture of the MoveS
 The integration branch merges school main `c429794` (C Room and the reviewed reminder fixes) and A branch `cde9ba3`. It preserves original author history. Supported real planning currently uses the Melbourne city-centre coordinates from A's interface guide; additional verified locations remain a follow-up. Every saved plan receives a unique session ID, avoiding overwrite for repeated inputs. Weather failure is not replaced with simulated weather; cached/stale forecasts remain labelled. The background interval and real Firebase sign-in still need device verification with team configuration.
 
 Validation on 14 October 2026 after A integration: debug app and Android test APK built; all 176 host tests passed (zero failures, errors or skips); lint completed with zero errors, 25 warnings and 2 hints. New tests cover saved-plan persistence/failures/cancellation and account switching through Room-backed Statistics, reminders and logout. These are host/Robolectric results, not a real Firebase or device end-to-end run.
+
+## Firebase configuration verification — 14 October 2026
+
+The supplied team configuration has been installed locally at `app/google-services.json` and is excluded from Git. The configured package matches `com.example.movesmart`; Google Android and Web OAuth client entries are present. The packaged-resource test confirms selection of `FirebaseAuthRepository`. With this configuration, debug and Android test APKs build and all 177 host tests pass. This does not authenticate a real user or verify Google sign-in.
+
+The supplied Android OAuth certificate does not match this checkout's debug signing SHA-1 (`26:54:D2:D8:3E:FA:51:10:93:C1:EC:E5:D8:B4:6A:57:C2:02:58:85`). The Firebase project owner should register this build's signing fingerprint and supply refreshed configuration if necessary. The cloud project's current certificate registrations have not been inspected. Email/password sign-in does not depend on that Google OAuth certificate, but still needs a real login check.
+
+A host HTTP probe of the app's Open-Meteo request returned HTTP 200 with 384 hourly entries for Australia/Melbourne, including temperature, rain probability and wind speed. Android network and background execution remain device checks. The installed emulator exits with code 132 before boot; no Android device is currently available.
+
+Remaining acceptance work:
+- On a working API 36+ device, verify real sign-in, preferences, two-account isolation, logout and subsequent sign-in; run `connectedDebugAndroidTest` on a test device.
+- Exercise Home → Find an Activity → saved details → reminder settings, and History add/edit/delete → day/week/month Statistics.
+- Verify notification denial/regrant, actual inexact alarm delivery, notification taps, reboot/clock-change restore and sound/silent channels using the reminder guide.
+- Integrate C's real movement/session implementation when available. The current Live screen saves an explicitly labelled sample session; it is not a sensor-verified workout.
+- Fetch and compare the latest school `main` before publishing an integration merge request. Remote authentication was not available during this verification; the checked main remains `c429794`.
+- Complete final assignment evidence and AI-use documentation with the team before submission.
