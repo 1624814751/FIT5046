@@ -17,10 +17,21 @@ import kotlinx.coroutines.runBlocking
 import com.example.movesmart.reminder.ReminderService
 import java.io.File
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.lifecycle.ViewModelStore
+import com.example.movesmart.data.remote.GoogleLoginProvider
+import com.example.movesmart.shared.*
+import com.example.movesmart.ui.auth.AuthViewModel
+import com.example.movesmart.ui.preferences.PreferencesViewModel
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 
 /** Navigation/state regressions and genuine emulator captures for the A2 report. */
 class PrototypeUiTest {
     @get:Rule val compose = createAndroidComposeRule<PrototypeTestActivity>()
+    private val accountModels = ViewModelStore()
+    @After fun clearAccountModels() { compose.runOnIdle { accountModels.clear() } }
     @Before fun clearPersistedReminders() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         runBlocking { ReminderService.get(context).logout().getOrThrow() }
@@ -191,6 +202,25 @@ class PrototypeUiTest {
     }
 
     @Test fun memberAOnboardingPreferencesReachBAndD() {
+        val auth = OnboardingTestAuth()
+        val preferences = OnboardingTestPreferences()
+        val google = object : GoogleLoginProvider {
+            override suspend fun getIdToken(activity: android.app.Activity) =
+                Result.failure<String>(UnsupportedOperationException("Not used in email onboarding"))
+            override suspend fun clear() = Result.success(Unit)
+        }
+        compose.activityRule.scenario.onActivity { activity ->
+            val authModel = AuthViewModel(auth, google)
+            val preferencesModel = PreferencesViewModel(auth, preferences)
+            accountModels.put("auth", authModel)
+            accountModels.put("preferences", preferencesModel)
+            activity.setContent {
+                MoveSmartTheme {
+                    MoveSmartApp(workoutRepository = activity.workoutRepository,
+                        authViewModelOverride = authModel, preferencesViewModelOverride = preferencesModel)
+                }
+            }
+        }
         scrollTap("Don't have an account? Sign Up")
         compose.onNodeWithText("Name").performTextInput("Integration Tester")
         compose.onNodeWithText("Email").performTextInput("tester@example.com")
@@ -206,6 +236,9 @@ class PrototypeUiTest {
         compose.onNodeWithText("Weekly movement goal (minutes)").performScrollTo().performClick()
         tap("180")
         scrollTap("Save Preferences")
+        compose.waitUntil(5_000) { preferences.saved.value?.weeklyGoalMinutes == 180 }
+        assertEquals("onboarding-test-user", preferences.saved.value?.userId)
+        assertEquals(Intensity.HIGH, preferences.saved.value?.preferredIntensity)
         scrollTap("Find an activity")
         compose.onNodeWithText("High").assertExists()
         scrollTap("See recommendation")
@@ -214,7 +247,32 @@ class PrototypeUiTest {
         compose.onNodeWithText("Integration Tester").assertExists()
         compose.onNodeWithText("tester@example.com").assertExists()
         scrollTap("View statistics")
-        compose.onNodeWithText(" / 180 min").assertExists()
+        compose.onNodeWithText("Workout demo only").assertIsDisplayed()
+        compose.onNodeWithText("Your week in motion").assertDoesNotExist()
+        assertTrue(runBlocking { compose.activity.workoutRepository.observe("local-demo").first() }.isEmpty())
+        assertTrue(runBlocking { compose.activity.workoutRepository.observe("onboarding-test-user").first() }.isEmpty())
     }
 
+}
+
+private class OnboardingTestAuth : AuthRepository {
+    override val currentUser = MutableStateFlow<UserAccount?>(null)
+    override suspend fun signUp(displayName: String, email: String, password: String): Result<UserAccount> {
+        val account = UserAccount("onboarding-test-user", displayName, email)
+        currentUser.value = account
+        return Result.success(account)
+    }
+    override suspend fun signIn(email: String, password: String) =
+        Result.failure<UserAccount>(UnsupportedOperationException("Use signup in this fixture"))
+    override suspend fun signInWithGoogle(idToken: String) = signIn("", "")
+    override suspend fun signOut(): Result<Unit> { currentUser.value = null; return Result.success(Unit) }
+}
+
+private class OnboardingTestPreferences : PreferencesRepository {
+    val saved = MutableStateFlow<UserPreferences?>(null)
+    override fun observe(userId: String) = saved
+    override suspend fun save(preferences: UserPreferences): Result<Unit> {
+        saved.value = preferences
+        return Result.success(Unit)
+    }
 }

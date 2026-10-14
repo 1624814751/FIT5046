@@ -21,11 +21,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +41,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.movesmart.AccentInk
 import com.example.movesmart.AppAccent
 import com.example.movesmart.AppBackground
@@ -48,9 +51,16 @@ import com.example.movesmart.ButtonShape
 import com.example.movesmart.CardShape
 import com.example.movesmart.TextInk
 import com.example.movesmart.TextMuted
+import com.example.movesmart.shared.UiState
 
+// Sign up screen: Create a new account
 @Composable
-fun SignUpScreen(onCreateAccount: (String, String) -> Unit, onLogin: () -> Unit) {
+fun SignUpScreen(
+    onCreateAccount: (String, String) -> Unit,
+    onLogin: () -> Unit,
+    authViewModel: AuthViewModel
+) {
+    val authState by authViewModel.state.collectAsStateWithLifecycle()
     var name by rememberSaveable { mutableStateOf("") }
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -58,14 +68,23 @@ fun SignUpScreen(onCreateAccount: (String, String) -> Unit, onLogin: () -> Unit)
     var passwordVisible by remember { mutableStateOf(false) }
     var confirmVisible by remember { mutableStateOf(false) }
     var submitted by remember { mutableStateOf(false) }
+    var handledUserId by rememberSaveable { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
+    val isLoading = authState == UiState.Loading
+
+    LaunchedEffect(authState) {
+        val account = (authState as? UiState.Success)?.data ?: return@LaunchedEffect
+        if (handledUserId != account.userId) {
+            handledUserId = account.userId
+            onCreateAccount(account.displayName, account.email)
+        }
+    }
+
     val submit = {
         submitted = true
-        if (name.isNotBlank() && android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches() && password.length >= 12 &&
-            confirmPassword.isNotBlank() && password == confirmPassword
-        ) {
+        if (checkSignup(name, email, password, confirmPassword) == null) {
             focusManager.clearFocus()
-            onCreateAccount(name.trim(), email.trim())
+            authViewModel.signup(name, email, password, confirmPassword)
         }
     }
     val confirmError = when {
@@ -99,7 +118,7 @@ fun SignUpScreen(onCreateAccount: (String, String) -> Unit, onLogin: () -> Unit)
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = name,
-            onValueChange = { name = it },
+            onValueChange = { name = it; authViewModel.clearError() },
             label = { Text("Name") },
             singleLine = true,
             isError = submitted && name.isBlank(),
@@ -113,7 +132,7 @@ fun SignUpScreen(onCreateAccount: (String, String) -> Unit, onLogin: () -> Unit)
         )
         OutlinedTextField(
             value = email,
-            onValueChange = { email = it },
+            onValueChange = { email = it; authViewModel.clearError() },
             label = { Text("Email") },
             singleLine = true,
             isError = submitted && !android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches(),
@@ -127,7 +146,7 @@ fun SignUpScreen(onCreateAccount: (String, String) -> Unit, onLogin: () -> Unit)
         )
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it },
+            onValueChange = { password = it; authViewModel.clearError() },
             label = { Text("Password") },
             singleLine = true,
             isError = submitted && password.length < 12,
@@ -146,7 +165,7 @@ fun SignUpScreen(onCreateAccount: (String, String) -> Unit, onLogin: () -> Unit)
         )
         OutlinedTextField(
             value = confirmPassword,
-            onValueChange = { confirmPassword = it },
+            onValueChange = { confirmPassword = it; authViewModel.clearError() },
             label = { Text("Confirm Password") },
             singleLine = true,
             isError = confirmError != null,
@@ -164,16 +183,25 @@ fun SignUpScreen(onCreateAccount: (String, String) -> Unit, onLogin: () -> Unit)
             colors = fieldColors,
             modifier = Modifier.fillMaxWidth()
         )
+        if (authState is UiState.Error) {
+            Text((authState as UiState.Error).message, color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+        }
         Button(
             onClick = submit,
+            enabled = !isLoading,
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = ButtonShape,
             colors = ButtonDefaults.buttonColors(containerColor = AppAccent, contentColor = AccentInk)
         ) {
-            Text("Create Account", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.height(24.dp), strokeWidth = 2.dp)
+            } else {
+                Text("Create Account", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
         }
         TextButton(
-            onClick = { focusManager.clearFocus(); onLogin() },
+            onClick = { focusManager.clearFocus(); authViewModel.clearError(); onLogin() },
+            enabled = !isLoading,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.textButtonColors(contentColor = AppPrimary)
         ) {
