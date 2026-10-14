@@ -4,6 +4,7 @@ import com.example.movesmart.shared.*
 import java.time.Duration
 import java.util.UUID
 
+// Recommendations: Suggest suitable activities
 class SimpleRecommendationEngine : RecommendationEngine {
     override fun evaluate(input: ContextInput): ContextDecision {
         val plan = input.plan

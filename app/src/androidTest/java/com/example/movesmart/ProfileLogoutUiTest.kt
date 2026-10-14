@@ -2,6 +2,7 @@ package com.example.movesmart
 
 import android.app.Activity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasAnyAncestor
@@ -23,7 +24,10 @@ import com.example.movesmart.ui.theme.MoveSmartTheme
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import com.example.movesmart.shared.Intensity
+import com.example.movesmart.shared.Environment
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -39,15 +43,18 @@ class ProfileLogoutUiTest {
     private lateinit var authViewModel: AuthViewModel
     private lateinit var preferencesViewModel: PreferencesViewModel
     private var logoutFinished = 0
+    private val demo = mutableStateOf(false)
+    private lateinit var preferencesRepository: LoadingPreferencesRepository
 
     @Before
     fun showProfile() {
         authRepository = ProfileFakeAuthRepository()
         googleLoginProvider = ProfileFakeGoogleLoginProvider()
+        preferencesRepository = LoadingPreferencesRepository()
         authViewModel = AuthViewModel(authRepository, googleLoginProvider)
         preferencesViewModel = PreferencesViewModel(
             authRepository,
-            LoadingPreferencesRepository()
+            preferencesRepository
         )
 
         compose.activityRule.scenario.onActivity { activity ->
@@ -57,15 +64,15 @@ class ProfileLogoutUiTest {
                         intensity = "Medium",
                         activities = listOf("Walking"),
                         goal = "Stay Active",
-                        displayName = "Alex",
-                        email = "alex@example.com",
+                        displayName = "Demo Alex",
+                        email = "demo@example.com",
                         weeklyMinutes = 150,
                         reminderEnabled = false,
                         onReminders = {},
                         onStatistics = {},
                         onEditPreferences = {},
                         onLogout = { logoutFinished += 1 },
-                        isDemoMode = false,
+                        isDemoMode = demo.value,
                         authViewModel = authViewModel,
                         preferencesViewModel = preferencesViewModel
                     )
@@ -73,6 +80,52 @@ class ProfileLogoutUiTest {
             }
         }
         compose.waitUntil(5_000) { preferencesViewModel.state.value.isLoading }
+    }
+
+    @After fun clearModels() {
+        compose.runOnIdle {
+            androidx.lifecycle.ViewModelStore().apply {
+                put("auth", authViewModel)
+                put("preferences", preferencesViewModel)
+                clear()
+            }
+        }
+    }
+
+    @Test fun realAccountNeverFallsBackToPrototypeWhileLoadingOrMissing() {
+        compose.onNodeWithText("Alex").assertIsDisplayed()
+        compose.onNodeWithText("Demo Alex").assertDoesNotExist()
+        compose.onNodeWithText("Beginner").assertDoesNotExist()
+        compose.onNodeWithText("Stay Active").assertDoesNotExist()
+        compose.onNodeWithText("Loading preferences...").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { preferencesRepository.values.tryEmit(null) }
+        compose.onNodeWithText("No preferences saved yet.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Weekly goal: 150 minutes").assertDoesNotExist()
+    }
+
+    @Test fun oldUidPreferencesAreNotDisplayedAfterAccountChange() {
+        compose.runOnIdle {
+            preferencesRepository.values.tryEmit(UserPreferences("profile-user", "Personal goal", Intensity.HIGH,
+                210, listOf("Yoga"), Environment.INDOOR))
+        }
+        compose.onNodeWithText("Personal goal").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { authRepository.userFlow.value = UserAccount("b", "Bea", "bea@example.com") }
+        compose.onNodeWithText("Bea").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Personal goal").assertDoesNotExist()
+        compose.onNodeWithText("Could not load preferences.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Stay Active").assertDoesNotExist()
+    }
+
+    @Test fun demoUsesPrototypeValuesAndExistingLogoutCallback() {
+        compose.runOnIdle { demo.value = true }
+        compose.onNodeWithText("Demo Alex").assertIsDisplayed()
+        compose.onNodeWithText("Stay Active").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Weekly goal: 150 minutes").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Log out").performScrollTo().performClick()
+        compose.onNodeWithText("Leave the demo?").assertIsDisplayed()
+        compose.onNode(hasText("Log out") and hasAnyAncestor(isDialog())).performClick()
+        compose.waitUntil(5_000) { logoutFinished == 1 }
+        assertEquals(0, authRepository.signOutCalls)
     }
 
     @Test
@@ -94,7 +147,7 @@ class ProfileLogoutUiTest {
 }
 
 private class ProfileFakeAuthRepository : AuthRepository {
-    private val userFlow = MutableStateFlow<UserAccount?>(
+    val userFlow = MutableStateFlow<UserAccount?>(
         UserAccount("profile-user", "Alex", "alex@example.com")
     )
     override val currentUser: StateFlow<UserAccount?> = userFlow
@@ -137,7 +190,8 @@ private class ProfileFakeGoogleLoginProvider : GoogleLoginProvider {
 }
 
 private class LoadingPreferencesRepository : PreferencesRepository {
-    override fun observe(userId: String): Flow<UserPreferences?> = emptyFlow()
+    val values = MutableSharedFlow<UserPreferences?>(replay = 1)
+    override fun observe(userId: String): Flow<UserPreferences?> = values
 
     override suspend fun save(preferences: UserPreferences): Result<Unit> {
         return Result.success(Unit)

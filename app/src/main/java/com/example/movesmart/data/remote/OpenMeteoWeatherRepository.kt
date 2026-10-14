@@ -16,6 +16,7 @@ import java.net.SocketTimeoutException
 import java.time.Clock
 import java.time.Duration
 
+// Weather: Load and cache weather forecasts
 class OpenMeteoWeatherRepository(
     private val api: WeatherApi,
     private val cache: WeatherCache,
@@ -55,7 +56,6 @@ class OpenMeteoWeatherRepository(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    // Report the request error if the cache also fails.
                 }
             }
             return Result.failure(failure)

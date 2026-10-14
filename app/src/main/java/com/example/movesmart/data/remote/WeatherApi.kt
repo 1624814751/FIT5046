@@ -3,6 +3,7 @@ package com.example.movesmart.data.remote
 import retrofit2.http.GET
 import retrofit2.http.Query
 
+// Weather API: Request hourly forecasts
 interface WeatherApi {
     @GET("v1/forecast")
     suspend fun getWeather(

@@ -8,7 +8,7 @@ The `member-d-dev` branch integrates the team's A2 screens: member A's account/p
 
 Open this folder in Android Studio. On the Login screen, **Explore demo** enters the app without credentials. Use Home / History / Statistics / Profile in the bottom bar. Reminder settings are available from Home and Profile. Home → Find an activity → Activity details → Start activity → Live workout → History is the main demo flow. The context form includes a DatePicker, four dropdowns and a sample rain toggle. Recommendations respect the selected time, location and indoor/outdoor context. Saved profile intensity feeds the form; the weekly target and history records feed Statistics.
 
-On the local `member-d-integration` branch, signed-in sessions use Member A authentication and preferences, and Member C Room records. Find an Activity loads real Open-Meteo weather for Melbourne city centre and the selected date, saves a user-scoped recommendation, then opens details by ID. Home reflects the loaded forecast. Reminder scope and Statistics use the Firebase UID; Explore demo is separate. Live workout/sensor playback still requires C integration and its current sample completion is explicitly labelled.
+On the local `member-d-integration` branch, signed-in sessions use Member A authentication and preferences, and Member C Room records. Find an Activity loads real Open-Meteo weather for Melbourne city centre and the selected date, saves a user-scoped recommendation, then opens details by ID. Home reflects the loaded forecast. Reminder scope and Statistics use the Firebase UID; Explore demo is separate. Live workout/sensor playback still requires C integration. Sample completion is restricted to Explore demo; real accounts can record completed workouts manually in History.
 
 Supply the team Firebase configuration as `app/google-services.json` to enable real Firebase login. Without it, the application builds with an explicit authentication configuration error and Explore demo remains available; no replacement Firebase project or credentials are created. Google sign-in also requires the team's client/SHA configuration. Device-level end-to-end verification remains pending.
 
@@ -50,6 +50,12 @@ Remaining acceptance work:
 - On a working API 36+ device, verify real sign-in, preferences, two-account isolation, logout and subsequent sign-in; run `connectedDebugAndroidTest` on a test device.
 - Exercise Home → Find an Activity → saved details → reminder settings, and History add/edit/delete → day/week/month Statistics.
 - Verify notification denial/regrant, actual inexact alarm delivery, notification taps, reboot/clock-change restore and sound/silent channels using the reminder guide.
-- Integrate C's real movement/session implementation when available. The current Live screen saves an explicitly labelled sample session; it is not a sensor-verified workout.
-- Fetch and compare the latest school `main` before publishing an integration merge request. Remote authentication was not available during this verification; the checked main remains `c429794`.
+- Integrate C's real movement/session implementation when available. Explore demo can save labelled sample sessions. Real accounts see an integration-pending message and can record completed workouts manually in History; no sample completion is written into their account.
+- School `main` was subsequently fetched at `6eee53e` and merged locally, including A's latest auth/preferences/weather fixes. Both GitHub and school GitLab fetch authentication were verified. Publish the integration branch and review its diff against main before merging.
 - Complete final assignment evidence and AI-use documentation with the team before submission.
+
+### Latest school main integrated
+
+School main `6eee53e` (including A follow-up `0ca0b66`) is merged into this local branch. A's preference session versioning, auth error handling and weather cache observation fixes are retained. D's Firebase-UID Room/Statistics/reminder integration replaces the earlier blanket restriction on signed-in workout history. Sample Live completion remains available only in Explore demo; signed-in users can manually add completed workouts in History. Weather session disposal now cancels both refresh and cache observation and invalidates retry state.
+
+Final validation: 209 host tests passed with zero failures/errors/skips, debug APK and Android test APK built, lint zero errors (25 warnings and 2 hints). The Android onboarding test has been adapted to the real planning/UID statistics flow and compiled, but no device execution is claimed. Both remote fetches succeeded using existing macOS Keychain credentials. No remote main branch was modified by this local merge.

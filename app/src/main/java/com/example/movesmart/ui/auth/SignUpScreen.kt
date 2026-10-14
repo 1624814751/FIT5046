@@ -53,6 +53,7 @@ import com.example.movesmart.TextInk
 import com.example.movesmart.TextMuted
 import com.example.movesmart.shared.UiState
 
+// Sign up screen: Create a new account
 @Composable
 fun SignUpScreen(
     onCreateAccount: (String, String) -> Unit,

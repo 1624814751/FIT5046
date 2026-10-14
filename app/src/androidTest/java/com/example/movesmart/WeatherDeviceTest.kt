@@ -54,7 +54,6 @@ class WeatherDeviceTest {
         assertEquals(ListenableWorker.Result.failure(), worker.doWork())
     }
 
-    // Run only when the tester explicitly enables a real network test.
     @Test fun realForecastAndWorkManagerUpdate() = runBlocking {
         assumeTrue(InstrumentationRegistry.getArguments().getString("weatherLiveTest") == "true")
         val query = WeatherQuery(GeoLocation("Melbourne", -37.8136, 144.9631),
@@ -66,7 +65,6 @@ class WeatherDeviceTest {
         val cache = StoredWeatherCache(context)
         assertEquals(weather.copy(source = DataSource.CACHE), cache.loadWeather(query))
 
-        // One-time work tests this worker today; the production schedule still uses 60 minutes.
         val manager = WorkManager.getInstance(context)
         val request = OneTimeWorkRequestBuilder<WeatherRefreshWorker>()
             .setInputData(weatherQueryData(query))

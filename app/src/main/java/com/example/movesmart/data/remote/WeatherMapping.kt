@@ -17,13 +17,13 @@ fun checkWeather(query: WeatherQuery, now: Instant = Instant.now()) {
         location.latitude !in -90.0..90.0 || location.longitude !in -180.0..180.0) {
         throw WeatherError("Choose a named location with valid latitude and longitude.", false)
     }
-    // The location may be a day ahead of or behind UTC. Check its exact range after the request.
     val today = now.atZone(ZoneOffset.UTC).toLocalDate()
     if (query.date < today.minusDays(1) || query.date > today.plusDays(16)) {
         throw WeatherError("Choose a date within the next 16 forecast days.", false)
     }
 }
 
+// Weather mapping: Read the selected day's noon forecast
 fun WeatherDto.toWeather(query: WeatherQuery, now: Instant): WeatherContext {
     val zone = try {
         ZoneId.of(timezone ?: "")
@@ -34,7 +34,6 @@ fun WeatherDto.toWeather(query: WeatherQuery, now: Instant): WeatherContext {
     if (query.date < today || query.date > today.plusDays(15)) {
         throw WeatherError("The selected date is outside the local 16-day forecast range.", false)
     }
-    // WeatherQuery has no activity time. Use noon on the planned date at the selected location.
     val index = hourly?.time?.indexOf("${query.date}T12:00") ?: -1
     if (index < 0) throw WeatherError("No noon forecast is available for the selected date.", false)
     val temperature = hourly?.temperature?.getOrNull(index)

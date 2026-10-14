@@ -80,12 +80,12 @@ fun MoveSmartApp(
     openReminderRequest: Int = 0,
     workoutRepository: com.example.movesmart.shared.WorkoutRepository? = null,
     workoutUserId: String = "local-demo",
-    suppliedAuthViewModel: AuthViewModel? = null,
-    suppliedPreferencesViewModel: PreferencesViewModel? = null
+    authViewModelOverride: AuthViewModel? = null,
+    preferencesViewModelOverride: PreferencesViewModel? = null
 ) {
     val androidContext = LocalContext.current
-    val authViewModel: AuthViewModel = suppliedAuthViewModel ?: viewModel(factory = AuthViewModel.factory(androidContext))
-    val preferencesViewModel: PreferencesViewModel = suppliedPreferencesViewModel ?:
+    val authViewModel: AuthViewModel = authViewModelOverride ?: viewModel(factory = AuthViewModel.factory(androidContext))
+    val preferencesViewModel: PreferencesViewModel = preferencesViewModelOverride ?:
         viewModel(factory = PreferencesViewModel.factory(androidContext))
     val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
     var demo by rememberSaveable { mutableStateOf(false) }
@@ -274,7 +274,7 @@ private fun SessionApp(
             }
             composable(Routes.PREFERENCES) {
                 PreferencesScreen(state.preferences.intensity, state.preferences.activities, state.preferences.goal,
-                    state.preferences.weeklyMinutes, suppliedViewModel = preferencesViewModel) { intensity, activities, goal, minutes ->
+                    state.preferences.weeklyMinutes, preferencesViewModelOverride = preferencesViewModel) { intensity, activities, goal, minutes ->
                     state.preferences = Preferences(goal, intensity, minutes, activities)
                     context.updateIntensity(intensity)
                     nav.popBackStack(); notify(if (isDemoMode) "Preferences saved for this demo." else "Preferences saved.")
@@ -300,10 +300,16 @@ private fun SessionApp(
                     })
             }
             composable(Routes.LIVE) {
+                if (!isDemoMode) ScreenColumn {
+                    Text("Live tracking is not connected yet")
+                    Text("You can record a completed workout manually in History. Sample sessions are available in Explore demo.")
+                    Button({ navigate(Routes.HISTORY) }) { Text("Open history") }
+                } else {
                 var saveError by rememberSaveable { mutableStateOf<String?>(null) }
                 LiveActivityScreen(state.activeWorkout, state.activeIntensity, state.activePlannedMinutes, saving, saveError) {
                     saveError = null
                     scope.launch {
+                        if (authViewModel.currentUser.value != null) return@launch
                         val record = StoredWorkoutRecord(0, workoutUserId, state.activeWorkout,
                             sampleSessionMinutes(state.activeWorkout, state.activePlannedMinutes), LocalDate.now(), null, DataSource.DEMO)
                         workouts.save(record).onSuccess {
@@ -311,6 +317,7 @@ private fun SessionApp(
                             notify("Sample session saved. Your statistics are updated.")
                         }.onFailure { saveError = "Could not save workout. Please try again." }
                     }
+                }
                 }
             }
             composable(Routes.HISTORY) {
