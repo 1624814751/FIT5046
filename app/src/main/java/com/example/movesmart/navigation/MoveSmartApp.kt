@@ -21,11 +21,17 @@ import androidx.activity.compose.BackHandler
 import com.example.movesmart.data.local.MoveSmartDatabase
 import com.example.movesmart.data.local.RoomWorkoutRepository
 import com.example.movesmart.shared.DataSource
+import com.example.movesmart.shared.SensorRepository
 import com.example.movesmart.shared.WorkoutRecord as StoredWorkoutRecord
+import com.example.movesmart.sensor.AndroidSensorAssetReader
+import com.example.movesmart.sensor.CsvSensorRepository
+import com.example.movesmart.sensor.LiveWorkoutViewModel
+import com.example.movesmart.sensor.SensorDatasets
 import com.example.movesmart.workout.WorkoutRecordsViewModel
 import com.example.movesmart.workout.WorkoutRecordsState
 import com.example.movesmart.ui.components.ScreenColumn
 import java.time.LocalDate
+import java.time.ZoneId
 import com.example.movesmart.ui.auth.AuthViewModel
 import com.example.movesmart.ui.auth.LoginScreen
 import com.example.movesmart.ui.auth.SignUpScreen
@@ -74,6 +80,7 @@ private val tabs = listOf(
 fun MoveSmartApp(
     openReminderRequest: Int = 0,
     workoutRepository: com.example.movesmart.shared.WorkoutRepository? = null,
+    sensorRepository: SensorRepository? = null,
     workoutUserId: String = "local-demo",
     authViewModelOverride: AuthViewModel? = null,
     preferencesViewModelOverride: PreferencesViewModel? = null
@@ -105,6 +112,9 @@ fun MoveSmartApp(
     val scope = rememberCoroutineScope()
     val repository = remember(androidContext, workoutRepository) {
         workoutRepository ?: RoomWorkoutRepository(MoveSmartDatabase.get(androidContext))
+    }
+    val sensors = remember(androidContext, sensorRepository) {
+        sensorRepository ?: CsvSensorRepository(AndroidSensorAssetReader(androidContext))
     }
     // This identifier selects shared demo data, never the Firebase account's workout history.
     // Member C will integrate real account ownership separately.
@@ -244,17 +254,48 @@ fun MoveSmartApp(
             }
             composable(Routes.LIVE) {
                 DemoWorkoutContent(isDemoMode && currentUser == null) {
+                    val liveWorkout: LiveWorkoutViewModel = viewModel(
+                        factory = LiveWorkoutViewModel.factory(
+                            sensors,
+                            SensorDatasets.UCI_HAPT_SUBSET_ID
+                        )
+                    )
+                    val liveState by liveWorkout.state.collectAsStateWithLifecycle()
                     var saveError by rememberSaveable { mutableStateOf<String?>(null) }
-                    LiveActivityScreen(state.activeWorkout, state.activeIntensity, state.activePlannedMinutes, saving, saveError) {
+                    var finishSubmitted by rememberSaveable { mutableStateOf(false) }
+                    LiveActivityScreen(
+                        activity = state.activeWorkout,
+                        plannedMinutes = state.activePlannedMinutes,
+                        state = liveState,
+                        isSaving = saving || finishSubmitted,
+                        saveError = saveError,
+                        onTogglePause = liveWorkout::togglePause,
+                        onRetryPlayback = liveWorkout::retryPlayback
+                    ) {
+                        if (finishSubmitted || saving) return@LiveActivityScreen
+                        finishSubmitted = true
                         saveError = null
+                        val summary = liveWorkout.summary()
                         scope.launch {
-                            if (!isDemoMode || authViewModel.currentUser.value != null) return@launch
+                            if (!isDemoMode || authViewModel.currentUser.value != null) {
+                                finishSubmitted = false
+                                return@launch
+                            }
                             val record = StoredWorkoutRecord(0, workoutUserId, state.activeWorkout,
-                                sampleSessionMinutes(state.activeWorkout, state.activePlannedMinutes), LocalDate.now(), null, DataSource.DEMO)
-                            workouts.save(record).onSuccess {
-                                nav.navigate(Routes.HISTORY) { popUpTo(Routes.HOME); launchSingleTop = true }
-                                notify("Sample session saved. Your statistics are updated.")
-                            }.onFailure { saveError = "Could not save workout. Please try again." }
+                                summary.minutes,
+                                summary.startedAt.atZone(ZoneId.systemDefault()).toLocalDate(),
+                                summary.startedAt,
+                                DataSource.DEMO)
+                            val result = workouts.save(record)
+                            withContext(Dispatchers.Main.immediate) {
+                                result.onSuccess {
+                                    nav.navigate(Routes.HISTORY) { popUpTo(Routes.HOME); launchSingleTop = true }
+                                    notify("Measured demo session saved. Your statistics are updated.")
+                                }.onFailure {
+                                    finishSubmitted = false
+                                    saveError = "Could not save workout. Please try again."
+                                }
+                            }
                         }
                     }
                 }

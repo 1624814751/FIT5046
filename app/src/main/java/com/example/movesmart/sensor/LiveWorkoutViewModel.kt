@@ -2,6 +2,7 @@ package com.example.movesmart.sensor
 
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.movesmart.shared.MotionContext
 import com.example.movesmart.shared.MovementBand
@@ -157,5 +158,16 @@ class LiveWorkoutViewModel(
         private const val MILLISECONDS_PER_MINUTE = 60_000L
         private const val MINIMUM_SAVED_MINUTES = 1
         private const val MAXIMUM_SAVED_MINUTES = 1_440
+
+        fun factory(
+            repository: SensorRepository,
+            datasetId: String = SensorDatasets.UCI_HAPT_SUBSET_ID
+        ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                require(modelClass.isAssignableFrom(LiveWorkoutViewModel::class.java))
+                return LiveWorkoutViewModel(repository, datasetId) as T
+            }
+        }
     }
 }

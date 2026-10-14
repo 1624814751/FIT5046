@@ -16,7 +16,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.movesmart.model.WorkoutRecord
-import com.example.movesmart.model.sampleSessionMinutes
 import com.example.movesmart.sensor.LiveWorkoutState
 import com.example.movesmart.ui.components.*
 import java.time.Instant
@@ -151,38 +150,6 @@ private fun List<Double>.formatAxes(): String = joinToString(", ") { value ->
 private fun formatElapsed(elapsedMilliseconds: Long): String {
     val totalSeconds = elapsedMilliseconds.coerceAtLeast(0) / 1_000
     return String.format(Locale.US, "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
-}
-
-@Composable
-fun LiveActivityScreen(activity: String, intensity: String, plannedMinutes: Int, isSaving: Boolean = false, errorMessage: String? = null, onFinish: () -> Unit) {
-    val sessionMinutes = sampleSessionMinutes(activity, plannedMinutes)
-    var paused by rememberSaveable { mutableStateOf(false) }
-    var confirmFinish by rememberSaveable { mutableStateOf(false) }
-    ScreenColumn {
-        SectionHeading(activity, "$intensity intensity · Sample session")
-        InfoCard(highlighted = true) {
-            Text("$sessionMinutes:00", fontSize = 56.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
-            Text(if (paused) "Paused · Demo timer" else "Elapsed time · Demo timer")
-            LinearProgressIndicator(progress = { sessionMinutes.toFloat() / plannedMinutes }, modifier = Modifier.fillMaxWidth())
-        }
-        InfoCard {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Outlined.FavoriteBorder, contentDescription = null)
-                Column {
-                    Text("112 bpm", style = MaterialTheme.typography.titleLarge)
-                    Text("Sample heart rate · No sensor connected", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-        Text("Listen to your body. Pause whenever you need a break.")
-        OutlinedButton({ paused = !paused }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(if (paused) "Resume workout" else "Pause workout") }
-        errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        PrimaryButton(if (isSaving) "Saving…" else "Finish workout", { confirmFinish = true }, enabled = !isSaving)
-    }
-    if (confirmFinish) AlertDialog(onDismissRequest = { confirmFinish = false }, title = { Text("Save this session?") },
-        text = { Text("Add this $sessionMinutes-minute sample session to History and Statistics.") },
-        confirmButton = { TextButton({ confirmFinish = false; onFinish() }) { Text("Save session") } },
-        dismissButton = { TextButton({ confirmFinish = false }) { Text("Keep moving") } })
 }
 
 @Composable
