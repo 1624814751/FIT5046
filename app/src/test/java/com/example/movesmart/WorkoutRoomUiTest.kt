@@ -52,9 +52,23 @@ class WorkoutRoomUiTest {
         compose.onNode(hasText("Explore demo") and hasClickAction()).performScrollTo().performClick()
     }
     private fun tap(text: String) = compose.onNode(hasText(text) and hasClickAction()).performClick()
-    private fun scrollTap(text: String) = compose.onNode(hasText(text) and hasClickAction()).performScrollTo().performClick()
+    private fun scrollTap(text: String) {
+        if (compose.onAllNodes(hasScrollToIndexAction()).fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text) and hasClickAction())
+        }
+        compose.onNode(hasText(text) and hasClickAction()).performScrollTo().performClick()
+    }
     private fun waitForText(text: String) = compose.waitUntil(10_000) {
         compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+    }
+    private fun assertHistoryText(text: String) {
+        // The demo notice reduces the host viewport; lazy items need scrolling to compose.
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(hasScrollToIndexAction()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text))
+        compose.onNodeWithText(text).assertIsDisplayed()
+        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(0)
     }
     private fun history() = compose.onNode(hasText("History") and isSelectable()).performClick()
     private fun statistics() = compose.onNode(hasText("Statistics") and isSelectable()).performClick()
@@ -62,22 +76,22 @@ class WorkoutRoomUiTest {
     @Test fun emptyStartupAndCancelledEditorDoNotCreateRecords() {
         start()
         history()
-        waitForText("No workouts yet")
+        assertHistoryText("No workouts yet")
         tap("Add workout")
         compose.onNodeWithText("Duration (minutes)").performTextReplacement("45")
         compose.onNodeWithContentDescription("Back").performClick()
-        waitForText("No workouts yet")
+        assertHistoryText("No workouts yet")
         assertTrue(runBlocking { repository.observe("local-demo").firstRows() }.isEmpty())
     }
 
     @Test fun savedRecordsReachStatisticsAndEditsAndDeletesPersist() {
         start()
         history()
-        waitForText("No workouts yet")
+        assertHistoryText("No workouts yet")
         tap("Add workout")
         compose.onNodeWithText("Duration (minutes)").performTextReplacement("45")
         scrollTap("Save workout")
-        waitForText("Every session counts")
+        assertHistoryText("Every session counts")
         compose.waitUntil(10_000) { runBlocking { repository.observe("local-demo").firstRowCount() } == 1 }
         // On the 320x470 host display, the feedback snackbar covers the Edit button.
         compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.Dismiss))
@@ -86,7 +100,7 @@ class WorkoutRoomUiTest {
         waitForText("Duration (minutes)")
         compose.onNodeWithText("Duration (minutes)").performTextReplacement("60")
         scrollTap("Save workout")
-        waitForText("Every session counts")
+        assertHistoryText("Every session counts")
         statistics()
         compose.waitUntil(10_000) {
             compose.onAllNodesWithContentDescription("Weekly goal: 60 of 150 minutes").fetchSemanticsNodes().isNotEmpty()
@@ -101,11 +115,11 @@ class WorkoutRoomUiTest {
         compose.onNodeWithContentDescription("Back").performClick()
         // Editor -> Search -> History. Re-selecting this tab would restore its Search stack.
         compose.onNodeWithContentDescription("Back").performClick()
-        waitForText("Every session counts")
+        assertHistoryText("Every session counts")
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Delete") and hasClickAction())
         scrollTap("Delete")
         compose.onNode(hasText("Delete") and hasAnyAncestor(isDialog())).performClick()
-        waitForText("No workouts yet")
+        assertHistoryText("No workouts yet")
         assertTrue(runBlocking { repository.observe("local-demo").firstRows() }.isEmpty())
         statistics()
         compose.onNodeWithContentDescription("Weekly goal: 0 of 150 minutes").assertExists()
@@ -117,7 +131,7 @@ class WorkoutRoomUiTest {
         }
         start(failing)
         history()
-        waitForText("No workouts yet")
+        assertHistoryText("No workouts yet")
         tap("Add workout")
         compose.onNodeWithText("Duration (minutes)").performTextReplacement("47")
         scrollTap("Save workout")
@@ -141,7 +155,7 @@ class WorkoutRoomUiTest {
         compose.onNodeWithText("Outdoor Walk").assertDoesNotExist()
         failRead = false
         tap("Retry")
-        waitForText("No workouts yet")
+        assertHistoryText("No workouts yet")
     }
 
     @Test fun systemBackCannotLeaveEditorWhileDatabaseWriteIsPending() {
@@ -155,14 +169,14 @@ class WorkoutRoomUiTest {
         }
         start(delayed)
         history()
-        waitForText("No workouts yet")
+        assertHistoryText("No workouts yet")
         tap("Add workout")
         scrollTap("Save workout")
         waitForText("Saving…")
         compose.runOnIdle { backDispatcher.onBackPressed() }
         compose.onNodeWithText("Duration (minutes)").assertExists()
         compose.runOnIdle { gate.complete(Unit) }
-        waitForText("Every session counts")
+        assertHistoryText("Every session counts")
     }
 
     @Test fun editorAccepts1440MinutesButRejectsZeroWithoutCallingSave() {

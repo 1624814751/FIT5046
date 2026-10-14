@@ -8,14 +8,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.example.movesmart.model.*
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.compose.BackHandler
 import com.example.movesmart.data.local.MoveSmartDatabase
 import com.example.movesmart.data.local.RoomWorkoutRepository
@@ -25,9 +26,11 @@ import com.example.movesmart.workout.WorkoutRecordsViewModel
 import com.example.movesmart.workout.WorkoutRecordsState
 import com.example.movesmart.ui.components.ScreenColumn
 import java.time.LocalDate
+import com.example.movesmart.ui.auth.AuthViewModel
 import com.example.movesmart.ui.auth.LoginScreen
 import com.example.movesmart.ui.auth.SignUpScreen
 import com.example.movesmart.ui.preferences.PreferencesScreen
+import com.example.movesmart.ui.preferences.PreferencesViewModel
 import com.example.movesmart.ui.profile.ProfileScreen
 import com.example.movesmart.ui.context.HomeScreen
 import com.example.movesmart.ui.context.ActivityRecommendationScreen
@@ -37,7 +40,9 @@ import com.example.movesmart.ui.screens.*
 import com.example.movesmart.reminder.ReminderRoute
 import com.example.movesmart.reminder.ReminderService
 import com.example.movesmart.reminder.toForm
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // Stable routes and callback-based screens are the integration contract for A/B/C/D.
 object Routes {
@@ -69,10 +74,21 @@ private val tabs = listOf(
 fun MoveSmartApp(
     openReminderRequest: Int = 0,
     workoutRepository: com.example.movesmart.shared.WorkoutRepository? = null,
-    workoutUserId: String = "local-demo"
+    workoutUserId: String = "local-demo",
+    authViewModelOverride: AuthViewModel? = null,
+    preferencesViewModelOverride: PreferencesViewModel? = null
 ) {
     val nav = rememberNavController()
     val context: WorkoutViewModel = viewModel()
+    val androidContext = LocalContext.current
+    val authViewModel: AuthViewModel = authViewModelOverride ?: viewModel(factory = AuthViewModel.factory(androidContext))
+    val preferencesViewModel: PreferencesViewModel =
+        preferencesViewModelOverride ?: viewModel(factory = PreferencesViewModel.factory(androidContext))
+    val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
+    val firstRoute = remember {
+        if (authViewModel.currentUser.value == null) Routes.LOGIN else Routes.HOME
+    }
+    var isDemoMode by rememberSaveable { mutableStateOf(false) }
     var state by rememberSaveable(stateSaver = PrototypeState.StateSaver) { mutableStateOf(PrototypeState()) }
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route ?: Routes.LOGIN
@@ -87,11 +103,11 @@ fun MoveSmartApp(
     }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val androidContext = LocalContext.current
     val repository = remember(androidContext, workoutRepository) {
         workoutRepository ?: RoomWorkoutRepository(MoveSmartDatabase.get(androidContext))
     }
-    // A will supply the authenticated UserAccount.userId; demo emails are not identities.
+    // This identifier selects shared demo data, never the Firebase account's workout history.
+    // Member C will integrate real account ownership separately.
     val workouts: WorkoutRecordsViewModel = viewModel(key = "workouts:$workoutUserId",
         factory = WorkoutRecordsViewModel.factory(repository, workoutUserId))
     val recordsState by workouts.state.collectAsStateWithLifecycle()
@@ -114,6 +130,16 @@ fun MoveSmartApp(
         if (!auth && openReminderRequest > handledReminderRequest) {
             handledReminderRequest = openReminderRequest
             nav.navigate(Routes.REMINDERS) { launchSingleTop = true }
+        }
+    }
+    LaunchedEffect(currentUser, isDemoMode, route) {
+        if (currentUser != null) isDemoMode = false
+        val isLoginRoute = route == Routes.LOGIN || route == Routes.SIGN_UP
+        if (currentUser == null && !isDemoMode && !isLoginRoute) {
+            nav.navigate(Routes.LOGIN) {
+                popUpTo(nav.graph.id) { inclusive = true }
+                launchSingleTop = true
+            }
         }
     }
     fun notify(message: String) { scope.launch { snackbar.showSnackbar(message) } }
@@ -172,20 +198,30 @@ fun MoveSmartApp(
         snackbarHost = { SnackbarHost(snackbar) },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        NavHost(nav, startDestination = Routes.LOGIN, modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+        NavHost(
+            nav,
+            startDestination = firstRoute,
+            modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
+        ) {
             composable(Routes.LOGIN) {
-                fun enterDemo() {
+                fun enterApp(demoMode: Boolean) {
+                    isDemoMode = demoMode
                     nav.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true }; launchSingleTop = true }
                 }
-                LoginScreen(onLogin = { email -> state.email = email; enterDemo() },
-                    onSignUp = { navigate(Routes.SIGN_UP) }, onExploreDemo = { enterDemo() })
+                LoginScreen(
+                    onLogin = { email -> state.email = email; enterApp(demoMode = false) },
+                    onSignUp = { navigate(Routes.SIGN_UP) },
+                    onExploreDemo = { enterApp(demoMode = true) },
+                    authViewModel = authViewModel
+                )
             }
             composable(Routes.SIGN_UP) {
                 SignUpScreen(onCreateAccount = { name, email ->
+                    isDemoMode = false
                     state.displayName = name; state.email = email
                     nav.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true }; launchSingleTop = true }
                     navigate(Routes.PREFERENCES)
-                }, onLogin = { nav.popBackStack() })
+                }, onLogin = { nav.popBackStack() }, authViewModel = authViewModel)
             }
             composable(Routes.HOME) {
                 HomeScreen(context, state.displayName, state.preferences.goal,
@@ -193,7 +229,7 @@ fun MoveSmartApp(
             }
             composable(Routes.PREFERENCES) {
                 PreferencesScreen(state.preferences.intensity, state.preferences.activities, state.preferences.goal,
-                    state.preferences.weeklyMinutes) { intensity, activities, goal, minutes ->
+                    state.preferences.weeklyMinutes, preferencesViewModelOverride) { intensity, activities, goal, minutes ->
                     state.preferences = Preferences(goal, intensity, minutes, activities)
                     context.updateIntensity(intensity)
                     nav.popBackStack(); notify("Preferences saved for this demo.")
@@ -207,76 +243,116 @@ fun MoveSmartApp(
                 })
             }
             composable(Routes.LIVE) {
-                var saveError by rememberSaveable { mutableStateOf<String?>(null) }
-                LiveActivityScreen(state.activeWorkout, state.activeIntensity, state.activePlannedMinutes, saving, saveError) {
-                    saveError = null
-                    scope.launch {
-                        val record = StoredWorkoutRecord(0, workoutUserId, state.activeWorkout,
-                            sampleSessionMinutes(state.activeWorkout, state.activePlannedMinutes), LocalDate.now(), null, DataSource.DEMO)
-                        workouts.save(record).onSuccess {
-                            nav.navigate(Routes.HISTORY) { popUpTo(Routes.HOME); launchSingleTop = true }
-                            notify("Sample session saved. Your statistics are updated.")
-                        }.onFailure { saveError = "Could not save workout. Please try again." }
+                DemoWorkoutContent(isDemoMode && currentUser == null) {
+                    var saveError by rememberSaveable { mutableStateOf<String?>(null) }
+                    LiveActivityScreen(state.activeWorkout, state.activeIntensity, state.activePlannedMinutes, saving, saveError) {
+                        saveError = null
+                        scope.launch {
+                            if (!isDemoMode || authViewModel.currentUser.value != null) return@launch
+                            val record = StoredWorkoutRecord(0, workoutUserId, state.activeWorkout,
+                                sampleSessionMinutes(state.activeWorkout, state.activePlannedMinutes), LocalDate.now(), null, DataSource.DEMO)
+                            workouts.save(record).onSuccess {
+                                nav.navigate(Routes.HISTORY) { popUpTo(Routes.HOME); launchSingleTop = true }
+                                notify("Sample session saved. Your statistics are updated.")
+                            }.onFailure { saveError = "Could not save workout. Please try again." }
+                        }
                     }
                 }
             }
             composable(Routes.HISTORY) {
-                WorkoutDataContent(recordsState, workouts::retry) {
-                    HistoryScreen(records, { navigate(Routes.record(-1)) }, { navigate(Routes.record(it)) },
-                        { id -> scope.launch {
-                            workouts.delete(id).onSuccess { notify("Workout deleted.") }
-                                .onFailure { notify("Could not delete workout. Please try again.") }
-                        } }, { navigate(Routes.SEARCH) }, { selectTab(Routes.STATISTICS) }, saving)
+                DemoWorkoutContent(isDemoMode && currentUser == null) {
+                    WorkoutDataContent(recordsState, workouts::retry) {
+                        HistoryScreen(records, { navigate(Routes.record(-1)) }, { navigate(Routes.record(it)) },
+                            { id -> scope.launch {
+                                if (!isDemoMode || authViewModel.currentUser.value != null) return@launch
+                                workouts.delete(id).onSuccess { notify("Workout deleted.") }
+                                    .onFailure { notify("Could not delete workout. Please try again.") }
+                            } }, { navigate(Routes.SEARCH) }, { selectTab(Routes.STATISTICS) }, saving)
+                    }
                 }
             }
             composable(Routes.SEARCH) {
-                WorkoutDataContent(recordsState, workouts::retry) {
-                    SearchScreen(records, { navigate(Routes.record(it)) }, { startWorkout(it) })
+                DemoWorkoutContent(isDemoMode && currentUser == null) {
+                    WorkoutDataContent(recordsState, workouts::retry) {
+                        SearchScreen(records, { navigate(Routes.record(it)) }, { startWorkout(it) })
+                    }
                 }
             }
             composable(Routes.RECORD, arguments = listOf(navArgument("id") { type = NavType.IntType })) { recordEntry ->
-                val id = recordEntry.arguments?.getInt("id") ?: -1
-                var saveError by rememberSaveable(id) { mutableStateOf<String?>(null) }
-                val original = recordsState.records.find { it.id == id }
-                val record = records.find { it.id == id }
-                WorkoutDataContent(recordsState, workouts::retry) {
-                    if (id != -1 && record == null) {
-                        ScreenColumn { Text("This workout is no longer in your history."); TextButton({ nav.popBackStack() }) { Text("Go back") } }
-                    } else WorkoutEditorScreen(record, today, saving, saveError, onCancel = { nav.popBackStack() }) { name, minutes, date ->
-                        saveError = null
-                        scope.launch {
-                            val saved = StoredWorkoutRecord(if (id == -1) 0 else id, workoutUserId, name, minutes, date,
-                                original?.startedAt, original?.source ?: DataSource.LIVE)
-                            workouts.save(saved).onSuccess {
-                                nav.popBackStack(); notify("Workout saved. Your statistics are updated.")
-                            }.onFailure { saveError = "Could not save workout. Please try again." }
+                DemoWorkoutContent(isDemoMode && currentUser == null) {
+                    val id = recordEntry.arguments?.getInt("id") ?: -1
+                    var saveError by rememberSaveable(id) { mutableStateOf<String?>(null) }
+                    val original = recordsState.records.find { it.id == id }
+                    val record = records.find { it.id == id }
+                    WorkoutDataContent(recordsState, workouts::retry) {
+                        if (id != -1 && record == null) {
+                            ScreenColumn { Text("This workout is no longer in your history."); TextButton({ nav.popBackStack() }) { Text("Go back") } }
+                        } else WorkoutEditorScreen(record, today, saving, saveError, onCancel = { nav.popBackStack() }) { name, minutes, date ->
+                            saveError = null
+                            scope.launch {
+                                if (!isDemoMode || authViewModel.currentUser.value != null) return@launch
+                                val saved = StoredWorkoutRecord(if (id == -1) 0 else id, workoutUserId, name, minutes, date,
+                                    original?.startedAt, original?.source ?: DataSource.LIVE)
+                                workouts.save(saved).onSuccess {
+                                    nav.popBackStack(); notify("Workout saved. Your statistics are updated.")
+                                }.onFailure { saveError = "Could not save workout. Please try again." }
+                            }
                         }
                     }
                 }
             }
             composable(Routes.REMINDERS) { ReminderRoute(reminderUserId) }
             composable(Routes.STATISTICS) {
-                WorkoutDataContent(recordsState, workouts::retry) {
-                    StatisticsScreen(records, state.preferences.weeklyMinutes, today) { selectTab(Routes.HISTORY) }
+                DemoWorkoutContent(isDemoMode && currentUser == null) {
+                    WorkoutDataContent(recordsState, workouts::retry) {
+                        StatisticsScreen(records, state.preferences.weeklyMinutes, today) { selectTab(Routes.HISTORY) }
+                    }
                 }
             }
             composable(Routes.PROFILE) { ProfileScreen(
                 intensity = state.preferences.intensity, activities = state.preferences.activities, goal = state.preferences.goal,
                 displayName = state.displayName, email = state.email, weeklyMinutes = state.preferences.weeklyMinutes,
                 reminderEnabled = state.reminder.enabled, onReminders = { navigate(Routes.REMINDERS) },
-                onStatistics = { selectTab(Routes.STATISTICS) }, onEditPreferences = { navigate(Routes.PREFERENCES) }) {
-                scope.launch {
-                    reminders.logout()
-                    state = PrototypeState()
-                    context.reset()
-                    // Clear saved tab stacks as well as the active stack when leaving a session.
-                    tabs.forEach { nav.clearBackStack(it.route) }
-                    nav.navigate(Routes.LOGIN) { popUpTo(nav.graph.id) { inclusive = true }; launchSingleTop = true }
-                }
-            } }
+                onStatistics = { selectTab(Routes.STATISTICS) }, onEditPreferences = { navigate(Routes.PREFERENCES) },
+                onLogout = {
+                    scope.launch {
+                        reminders.logout()
+                        withContext(Dispatchers.Main.immediate) {
+                            isDemoMode = false
+                            state = PrototypeState()
+                            context.reset()
+                            // Clear saved tab stacks as well as the active stack when leaving a session.
+                            tabs.forEach { nav.clearBackStack(it.route) }
+                            nav.navigate(Routes.LOGIN) {
+                                popUpTo(nav.graph.id) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                }, isDemoMode = isDemoMode, authViewModel = authViewModel,
+                preferencesViewModel = preferencesViewModel) }
         }
         // Keep this inside Scaffold's content, after NavHost's own handler registration.
         BackHandler(enabled = saving) { /* Wait for the pending write rather than popping twice. */ }
+    }
+}
+
+@Composable
+private fun DemoWorkoutContent(allowed: Boolean, content: @Composable () -> Unit) {
+    if (allowed) {
+        Column(Modifier.fillMaxSize()) {
+            Text("Shared workout demo · Not personal workout history",
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelMedium)
+            Box(Modifier.weight(1f)) { content() }
+        }
+    } else {
+        ScreenColumn {
+            Text("Workout demo only", style = MaterialTheme.typography.titleLarge)
+            Text("Personal workout history is not connected to your account yet. " +
+                "To try the shared workout demo, log out from Profile and choose Explore demo. " +
+                "Use sample workout details only.")
+        }
     }
 }
 
