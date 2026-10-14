@@ -57,6 +57,7 @@ import com.example.movesmart.TextInk
 import com.example.movesmart.TextMuted
 import com.example.movesmart.shared.UiState
 
+// Login screen: User authentication
 @Composable
 fun LoginScreen(
     onLogin: (String) -> Unit,

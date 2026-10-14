@@ -5,9 +5,13 @@ import com.example.movesmart.data.remote.WeatherError
 import com.example.movesmart.shared.*
 import com.example.movesmart.ui.weather.WeatherViewModel
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
@@ -17,6 +21,94 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class WeatherViewModelTest {
     @get:Rule val mainDispatcherRule = MainDispatcherRule()
+
+    @Test fun laterWorkerCacheRecoversAfterInitialRefreshFailure() = runTest {
+        val saved = MutableStateFlow<WeatherContext?>(null)
+        val repository = object : WeatherRepository {
+            override fun observe(query: WeatherQuery) = saved
+            override suspend fun refresh(query: WeatherQuery): Result<WeatherContext> =
+                Result.failure(WeatherError("Offline", true))
+        }
+        val model = WeatherViewModel(repository)
+        val owner = ViewModelStore().apply { put("weather", model) }
+        model.loadWeather(weatherQuery)
+        runCurrent()
+        assertEquals(UiState.Error("Offline", true), model.state.value)
+        saved.value = liveWeather().copy(source = DataSource.CACHE)
+        runCurrent()
+        assertEquals(UiState.Success(saved.value), model.state.value)
+        owner.clear()
+    }
+
+    @Test fun observationFailureIsShownAndRetryRestartsObservation() = runTest {
+        val failObservation = CompletableDeferred<Unit>()
+        var observations = 0
+        val repository = object : WeatherRepository {
+            override fun observe(query: WeatherQuery) = flow<WeatherContext?> {
+                observations++
+                if (observations == 1) {
+                    failObservation.await()
+                    error("Cache unavailable")
+                }
+                emit(liveWeather().copy(source = DataSource.CACHE))
+            }
+            override suspend fun refresh(query: WeatherQuery) = Result.success(liveWeather())
+        }
+        val model = WeatherViewModel(repository)
+        val owner = ViewModelStore().apply { put("weather", model) }
+        model.loadWeather(weatherQuery)
+        runCurrent()
+        failObservation.complete(Unit)
+        runCurrent()
+        assertEquals(UiState.Error("Cache unavailable", true), model.state.value)
+        model.retryWeather()
+        runCurrent()
+        assertEquals(2, observations)
+        assertTrue(model.state.value is UiState.Success)
+        owner.clear()
+    }
+
+    @Test fun thrownRefreshErrorIsHandledAndCancellationIsNotAnError() = runTest {
+        var cancel = false
+        val repository = object : WeatherRepository {
+            override fun observe(query: WeatherQuery) = emptyFlow<WeatherContext?>()
+            override suspend fun refresh(query: WeatherQuery): Result<WeatherContext> {
+                if (cancel) throw CancellationException()
+                error("Unexpected refresh failure")
+            }
+        }
+        val model = WeatherViewModel(repository)
+        val owner = ViewModelStore().apply { put("weather", model) }
+        model.loadWeather(weatherQuery)
+        runCurrent()
+        assertTrue(model.state.value is UiState.Error)
+        cancel = true
+        model.retryWeather()
+        runCurrent()
+        assertFalse(model.state.value is UiState.Error)
+        owner.clear()
+    }
+
+    @Test fun lateNonCooperativeRefreshCannotReplaceNewQuery() = runTest {
+        val delayed = CompletableDeferred<WeatherContext>()
+        val next = weatherQuery.copy(date = weatherQuery.date.plusDays(1))
+        val repository = object : WeatherRepository {
+            override fun observe(query: WeatherQuery) = emptyFlow<WeatherContext?>()
+            override suspend fun refresh(query: WeatherQuery): Result<WeatherContext> =
+                if (query == weatherQuery) withContext(NonCancellable) { Result.success(delayed.await()) }
+                else Result.success(liveWeather().copy(query = query))
+        }
+        val model = WeatherViewModel(repository)
+        val owner = ViewModelStore().apply { put("weather", model) }
+        model.loadWeather(weatherQuery)
+        runCurrent()
+        model.loadWeather(next)
+        runCurrent()
+        delayed.complete(liveWeather())
+        runCurrent()
+        assertEquals(next, (model.state.value as UiState.Success).data.query)
+        owner.clear()
+    }
 
     @Test fun loadingSuccessAndCachedInfo() = runTest(mainDispatcherRule.dispatcher) {
         val repository = TestRepository()

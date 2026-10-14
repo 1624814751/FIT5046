@@ -19,6 +19,7 @@ import java.util.Base64
 
 private val Context.recommendationDataStore by preferencesDataStore(name = "member_a_recommendations")
 
+// Recommendations: Save and load results for each user
 class DataStoreRecommendationStore(
     private val dataStore: DataStore<Preferences>,
     userId: String

@@ -11,6 +11,7 @@ import com.example.movesmart.shared.Environment
 import com.example.movesmart.shared.Intensity
 import com.example.movesmart.shared.PreferencesRepository
 import com.example.movesmart.shared.UserPreferences
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -19,6 +20,7 @@ import java.util.Base64
 
 private val Context.memberAPreferencesDataStore by preferencesDataStore(name = "member_a_preferences")
 
+// Preferences: Save and load user preferences
 class DataStorePreferencesRepository(
     private val dataStore: DataStore<Preferences>
 ) : PreferencesRepository {
@@ -31,7 +33,7 @@ class DataStorePreferencesRepository(
     }
 
     override suspend fun save(preferences: UserPreferences): Result<Unit> {
-        return runCatching {
+        return try {
             require(preferences.userId.isNotBlank()) { "A user ID is required." }
             require(preferences.goal.isNotBlank()) { "An exercise goal is required." }
             require(preferences.weeklyGoalMinutes in 1..10080) { "The weekly goal is not valid." }
@@ -44,6 +46,11 @@ class DataStorePreferencesRepository(
                 values[keys.activities] = encodeActivities(preferences.activityNames)
                 values[keys.environment] = preferences.environment.name
             }
+            Result.success(Unit)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(error)
         }
     }
 

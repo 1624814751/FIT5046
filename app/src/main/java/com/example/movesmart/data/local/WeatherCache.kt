@@ -24,7 +24,7 @@ interface WeatherCache {
     suspend fun saveWeather(weather: WeatherContext)
 }
 
-// Save one forecast in its own file. Member A's user preferences stay in DataStore.
+// Weather cache: Save and restore forecasts
 class StoredWeatherCache(context: Context) : WeatherCache {
     private val prefs = context.applicationContext.getSharedPreferences("weather_cache", Context.MODE_PRIVATE)
 
@@ -44,7 +44,7 @@ class StoredWeatherCache(context: Context) : WeatherCache {
             WeatherContext(savedQuery, temperature, rain, wind,
                 Instant.parse(json.getString("fetchedAt")), DataSource.CACHE, false)
         } catch (_: Exception) {
-            null // A broken cache must not become fake weather.
+            null
         }
     }
 
@@ -60,7 +60,7 @@ class StoredWeatherCache(context: Context) : WeatherCache {
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }.distinctUntilChanged().flowOn(Dispatchers.IO)
 
-    @SuppressLint("UseKtx") // Check the commit result; the KTX edit function does not return it.
+    @SuppressLint("UseKtx")
     override suspend fun saveWeather(weather: WeatherContext) = withContext(Dispatchers.IO) {
         val json = JSONObject().apply {
             put("label", weather.query.location.label)

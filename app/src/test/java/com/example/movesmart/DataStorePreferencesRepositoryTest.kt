@@ -1,17 +1,23 @@
 package com.example.movesmart
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import com.example.movesmart.shared.Environment
 import com.example.movesmart.shared.Intensity
 import com.example.movesmart.shared.UserPreferences
 import com.example.movesmart.ui.preferences.DataStorePreferencesRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -21,6 +27,20 @@ import java.io.File
 class DataStorePreferencesRepositoryTest {
     @get:Rule
     val folder = TemporaryFolder()
+
+    @Test fun cancellationIsPropagatedWithoutChangingTheStorageFormat() = runTest {
+        val dataStore = object : DataStore<Preferences> {
+            override val data: Flow<Preferences> = emptyFlow()
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences {
+                throw CancellationException("Cancelled save")
+            }
+        }
+        try {
+            DataStorePreferencesRepository(dataStore).save(samplePreferences("user-a", 150))
+            fail("Cancellation should be propagated")
+        } catch (_: CancellationException) {
+        }
+    }
 
     @Test
     fun saveAndLoadPreferences() = runTest {
