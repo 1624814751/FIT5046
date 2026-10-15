@@ -7,9 +7,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.movesmart.shared.*
 import com.example.movesmart.ui.components.*
+import com.example.movesmart.ui.context.WorkoutViewModel
+import com.example.movesmart.ui.context.memberAPlan
 import com.example.movesmart.ui.preferences.intensityToText
 import com.example.movesmart.ui.preferences.environmentToText
 import com.example.movesmart.ui.weather.WeatherViewModel
@@ -17,15 +18,11 @@ import com.example.movesmart.worker.WeatherWork
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneOffset
-
-// Fixed city-centre coordinates supplied in Member A's interface guide; not device GPS.
-val melbournePlanningLocation = GeoLocation("Melbourne city centre", -37.8136, 144.9631)
 
 @Composable
 fun ConnectedHome(name: String, preferences: UserPreferences?, loading: Boolean, error: String?, weather: UiState<WeatherContext>,
-    onPlan: () -> Unit, onPreferences: () -> Unit) {
+    onPlan: () -> Unit, onPreferences: () -> Unit, contextContent: (@Composable () -> Unit)? = null) {
     ScreenColumn {
         SectionHeading("Hi, $name", "Plan an activity using your preferences and the forecast.")
         InfoCard {
@@ -40,7 +37,7 @@ fun ConnectedHome(name: String, preferences: UserPreferences?, loading: Boolean,
                 }
             }
         }
-        InfoCard {
+        if (contextContent == null) InfoCard {
             Text("Weather", style = MaterialTheme.typography.titleMedium)
             when (weather) {
                 is UiState.Success -> {
@@ -54,24 +51,24 @@ fun ConnectedHome(name: String, preferences: UserPreferences?, loading: Boolean,
         }
         PrimaryButton("Find an activity", onPlan, enabled = preferences != null && !loading && error == null)
         OutlinedButton(onPreferences, Modifier.fillMaxWidth()) { Text("Preferences") }
+        contextContent?.invoke()
         Text("Your plan uses the forecast for the selected location and date. Movement feedback is available when a sensor session is connected.")
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlanningScreen(planning: PlanningViewModel, weather: WeatherViewModel, preferences: UserPreferences?, onDetails: (String) -> Unit) {
+fun PlanningScreen(planning: PlanningViewModel, weather: WeatherViewModel, preferences: UserPreferences?,
+    form: WorkoutViewModel, location: GeoLocation?, contextContent: @Composable () -> Unit,
+    onDetails: (String) -> Unit) {
     val context = LocalContext.current
     val weatherState by weather.state.collectAsStateWithLifecycle()
     val saveState by planning.state.collectAsStateWithLifecycle()
-    var epochDay by rememberSaveable { mutableLongStateOf(LocalDate.now().toEpochDay()) }
-    var minutes by rememberSaveable { mutableStateOf("30") }
-    var intensity by rememberSaveable { mutableStateOf(preferences?.preferredIntensity?.name ?: Intensity.MEDIUM.name) }
-    var environment by rememberSaveable { mutableStateOf(preferences?.environment?.name ?: Environment.ANY.name) }
     var datePicker by rememberSaveable { mutableStateOf(false) }
     var scheduleError by remember { mutableStateOf<String?>(null) }
-    val date = LocalDate.ofEpochDay(epochDay)
-    val query = WeatherQuery(melbournePlanningLocation, date)
+    val date = Instant.ofEpochMilli(form.selectedDateMillis).atZone(ZoneOffset.UTC).toLocalDate()
+    val plan = memberAPlan(form, location)
+    val query = plan?.let { WeatherQuery(it.location, it.date) }
     val loaded = (weatherState as? UiState.Success)?.data?.takeIf { it.query == query }
     val saving = saveState == UiState.Loading
     LaunchedEffect(saveState) {
@@ -79,21 +76,21 @@ fun PlanningScreen(planning: PlanningViewModel, weather: WeatherViewModel, prefe
     }
     ScreenColumn {
         SectionHeading("Find an activity", "Choose your plan, then load the matching forecast.")
-        Text("Location: Melbourne city centre")
-        Text("Forecast location only; your device location is not used.")
+        Text(location?.let { "Location: ${it.label}" } ?: "Choose a verified location below.")
         OutlinedButton({ datePicker = true }, enabled = !saving) { Text("Date: $date") }
-        ChoiceField("Available time", minutes, listOf("15", "30", "45", "60")) { if (!saving) minutes = it }
-        ChoiceField("Intensity", intensity, Intensity.entries.map { it.name }) { if (!saving) intensity = it }
-        ChoiceField("Environment", environment, Environment.entries.map { it.name }) { if (!saving) environment = it }
-        PrimaryButton("Load weather", { weather.loadWeather(query) }, enabled = !saving && weatherState != UiState.Loading)
+        ChoiceField("Available time", form.selectedDuration, listOf("15 min", "30 min", "45 min", "60 min")) { if (!saving) form.updateDuration(it) }
+        ChoiceField("Intensity", form.selectedIntensity, Intensity.entries.map(::intensityToText)) { if (!saving) form.updateIntensity(it) }
+        ChoiceField("Environment", form.selectedPreference, Environment.entries.map(::environmentToText)) { if (!saving) form.updatePreference(it) }
+        contextContent()
+        PrimaryButton("Load weather", { query?.let(weather::loadWeather) }, enabled = query != null && !saving && weatherState != UiState.Loading)
         when (val result = weatherState) {
             UiState.Idle -> Text("Load weather to continue.")
             UiState.Loading -> { CircularProgressIndicator(); Text("Loading weather…") }
             is UiState.Error -> {
                 Text(result.message)
-                if (result.retryable) TextButton({ weather.loadWeather(query) }) { Text("Retry weather") }
+                if (result.retryable && query != null) TextButton({ weather.loadWeather(query) }) { Text("Retry weather") }
             }
-            is UiState.Success -> if (loaded == null) Text("The date changed. Load weather for this date.") else {
+            is UiState.Success -> if (loaded == null) Text("The location or date changed. Load matching weather.") else {
                 InfoCard {
                     Text("${loaded.temperatureC}°C · rain ${loaded.rainProbabilityPercent?.let { "$it%" } ?: "unavailable"} · wind ${loaded.windSpeedKmh?.let { "$it km/h" } ?: "unavailable"}")
                     Text("${loaded.source.name} forecast${if (loaded.isStale) " · STALE — check conditions before going outside" else ""}")
@@ -109,14 +106,13 @@ fun PlanningScreen(planning: PlanningViewModel, weather: WeatherViewModel, prefe
         if (preferences == null) Text("Save your preferences before creating a plan.")
         (saveState as? UiState.Error)?.let { Text(it.message) }
         PrimaryButton(if (saving) "Saving plan…" else "Show activity details", {
-            if (preferences != null && loaded != null) planning.create(preferences,
-                PlanningInput(date, minutes.toInt(), Intensity.valueOf(intensity), Environment.valueOf(environment), query.location), loaded)
-        }, enabled = preferences != null && loaded != null && !saving && weatherState != UiState.Loading)
+            if (preferences != null && loaded != null && plan != null) planning.create(preferences, plan, loaded)
+        }, enabled = preferences != null && plan != null && loaded != null && !saving && weatherState != UiState.Loading)
     }
     if (datePicker) {
         val picker = rememberDatePickerState(initialSelectedDateMillis = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
         DatePickerDialog(onDismissRequest = { datePicker = false }, confirmButton = {
-            TextButton({ picker.selectedDateMillis?.let { epochDay = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toEpochDay() }; datePicker = false }) { Text("Apply") }
+            TextButton({ picker.selectedDateMillis?.let(form::updateDate); datePicker = false }) { Text("Apply") }
         }, dismissButton = { TextButton({ datePicker = false }) { Text("Cancel") } }) { DatePicker(picker) }
     }
 }

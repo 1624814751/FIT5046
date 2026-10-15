@@ -62,7 +62,6 @@ import com.example.movesmart.shared.UiState
 fun LoginScreen(
     onLogin: (String) -> Unit,
     onSignUp: () -> Unit,
-    onExploreDemo: () -> Unit,
     authViewModel: AuthViewModel
 ) {
     val context = LocalContext.current
@@ -113,7 +112,7 @@ fun LoginScreen(
         Spacer(Modifier.height(40.dp))
         Text("MoveSmart", color = AppPrimary, fontSize = 36.sp, fontWeight = FontWeight.ExtraBold)
         Text("Move smarter. Stay active.", color = TextMuted, fontSize = 16.sp)
-        Text("Use your account, or choose Explore demo without signing in.", color = TextMuted, fontSize = 14.sp)
+        Text("Sign in to save workouts and view your history.", color = TextMuted, fontSize = 14.sp)
         Spacer(Modifier.height(24.dp))
         Text("Log In", color = TextInk, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         OutlinedTextField(
@@ -179,9 +178,6 @@ fun LoginScreen(
             colors = ButtonDefaults.outlinedButtonColors(contentColor = AppPrimary)
         ) {
             Text("Continue with Google")
-        }
-        TextButton(onClick = onExploreDemo, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
-            Text("Explore demo")
         }
         TextButton(
             onClick = { focusManager.clearFocus(); authViewModel.clearError(); onSignUp() },

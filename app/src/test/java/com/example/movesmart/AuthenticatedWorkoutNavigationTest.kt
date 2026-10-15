@@ -118,7 +118,18 @@ class AuthenticatedWorkoutNavigationTest {
         assertEquals(0, savedCount())
     }
 
-    @Test fun repeatedFinishAndBackDuringPendingWriteSaveOnlyOneAccountRecord() {
+    @Test fun repeatedLeaveInSameFramePopsOnlyTheLiveScreen() {
+        start()
+        compose.onNodeWithContentDescription("Back").performClick()
+        val leave = compose.onNodeWithText("Leave without saving")
+            .fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
+        compose.runOnIdle { leave(); leave() }
+        // Live was entered from Search. A duplicate pop would incorrectly return to Home.
+        compose.onAllNodesWithText("Start sample workout")[0].assertExists()
+        assertEquals(0, savedCount())
+    }
+
+    @Test fun delayedNotificationThenRepeatedFinishSavesOneRecordBeforeOpeningReminders() {
         val gate = CompletableDeferred<Unit>()
         var writes = 0
         val delayed = object : WorkoutRepository by repository {
@@ -129,6 +140,7 @@ class AuthenticatedWorkoutNavigationTest {
             }
         }
         start(delayed)
+        compose.runOnIdle { notification.intValue = 1 }
         compose.onNodeWithText("Finish workout").performScrollTo().performClick()
         // Invoke two rapid submissions in the same frame, before recomposition disables the UI.
         val submit = compose.onNode(hasText("Save session") and hasAnyAncestor(isDialog()))
@@ -144,6 +156,7 @@ class AuthenticatedWorkoutNavigationTest {
         compose.waitUntil(10_000) { savedCount() == 1 }
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Finish workout").fetchSemanticsNodes().isEmpty() }
         assertEquals(1, writes)
+        compose.onNodeWithText("Saved on this device. Android may delay reminders to save battery.").assertExists()
         assertEquals(0, runBlocking { repository.observe("local-demo").first().size })
     }
 }

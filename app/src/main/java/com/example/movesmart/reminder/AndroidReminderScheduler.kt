@@ -13,7 +13,8 @@ import java.time.Instant
 class AndroidReminderScheduler(
     private val context: Context,
     private val store: ReminderStore,
-    private val notifications: ReminderNotifications
+    private val notifications: ReminderNotifications,
+    private val now: () -> Instant = Instant::now
 ) : ReminderScheduler {
     private val alarms = context.getSystemService(AlarmManager::class.java)
     private fun intent(userId: String) = Intent(context, ReminderReceiver::class.java)
@@ -22,11 +23,22 @@ class AndroidReminderScheduler(
 
     override suspend fun schedule(settings: ReminderSettings): Result<Unit> = runCatching {
         require(settings.validationError() == null) { settings.validationError().orEmpty() }
-        cancel(settings.userId).getOrThrow()
-        val next = nextReminderTime(settings, Instant.now()) ?: return@runCatching
+        val next = nextReminderTime(settings, now()) ?: run { cancel(settings.userId).getOrThrow(); return@runCatching }
+        arm(settings, next.toEpochMilli())
+    }
+
+    /** Re-arm the persisted occurrence after reboot/startup without advancing past a late alarm. */
+    suspend fun restore(settings: ReminderSettings): Result<Unit> = runCatching {
+        require(settings.validationError() == null) { settings.validationError().orEmpty() }
+        if (!settings.enabled) { cancel(settings.userId).getOrThrow(); return@runCatching }
+        val trigger = store.scheduledAt(settings.userId).takeIf { it > 0 }
+            ?: nextReminderTime(settings, now())!!.toEpochMilli()
+        arm(settings, trigger)
+    }
+
+    private fun arm(settings: ReminderSettings, trigger: Long) {
         check(store.activeUser == settings.userId) { "Sign in before scheduling a reminder." }
         check(notifications.canNotify(settings.sound)) { "Enable workout notifications in system settings, then save again." }
-        val trigger = next.toEpochMilli()
         val pending = PendingIntent.getBroadcast(context, 4101, intent(settings.userId).putExtra(EXTRA_TIME, trigger),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         store.setScheduledAt(settings.userId, trigger)
@@ -35,10 +47,10 @@ class AndroidReminderScheduler(
             alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pending)
         } catch (failure: Exception) {
             pending.cancel()
-            store.setScheduledAt(settings.userId, 0)
+            // Keep the occurrence persisted so a later restore can retry it.
             throw failure
         }
-        Log.i(TAG, "Alarm scheduled for $next")
+        Log.i(TAG, "Alarm scheduled for ${Instant.ofEpochMilli(trigger)}")
     }
 
     override suspend fun cancel(userId: String): Result<Unit> = runCatching {
@@ -46,6 +58,7 @@ class AndroidReminderScheduler(
             alarms.cancel(it); it.cancel()
         }
         store.setScheduledAt(userId, 0)
+        store.setPendingDelivery(userId, 0)
         notifications.cancel(userId)
         Log.i(TAG, "Alarm cancelled")
     }

@@ -27,6 +27,17 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
     private var observeJob: Job? = null
     private var queryVersion = 0
 
+    fun clearLocation() {
+        queryVersion++
+        loadJob?.cancel()
+        observeJob?.cancel()
+        query = null
+        stateFlow.value = UiState.Idle
+    }
+
+    fun stateForQuery(value: WeatherQuery?): UiState<WeatherContext> =
+        if (value == null) UiState.Idle else if (query == value) stateFlow.value else UiState.Loading
+
     fun loadWeather(value: WeatherQuery) {
         query = value
         queryVersion++
@@ -57,6 +68,7 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
             try {
                 val weather = repository.refresh(value).getOrThrow()
                 currentCoroutineContext().ensureActive()
+                require(weather.query == value) { "Weather does not match the selected location and date." }
                 if (version == queryVersion) {
                     fetchedWeather = weather
                     stateFlow.value = UiState.Success(weather)

@@ -87,48 +87,22 @@ class WorkoutDemoSeparationTest {
             }
             ViewModelProvider(owner, factory)[AuthViewModel::class.java]
             ViewModelProvider(owner, factory)[PreferencesViewModel::class.java]
-            listOf("local-demo", "firebase-user", "signed-out", "second-user").forEach { userId ->
-                ViewModelProvider(owner, factory)["demo-plan:$userId", WorkoutViewModel::class.java]
+            listOf("local-demo", "firebase-user", "firebase-b", "second-user", "signed-out").forEach { userId ->
+                ViewModelProvider(owner, factory)["plan-form:$userId", WorkoutViewModel::class.java]
             }
         }
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
-                MoveSmartTheme {
-                    MoveSmartApp(
-                        openReminderRequest = reminderRequest,
-                        workoutRepository = repository,
-                        sensorRepository = object : SensorRepository {
-                            override fun playback(datasetId: String) = flowOf(
-                                MotionContext(
-                                    datasetId = "test-dataset",
-                                    sampleIndex = 0,
-                                    elapsedMilliseconds = 0,
-                                    accelerometer = listOf(0.1, 0.2, 0.9),
-                                    gyroscope = listOf(0.01, 0.02, 0.03),
-                                    accelerometerUnit = "g",
-                                    gyroscopeUnit = "rad/s",
-                                    activityLabel = "WALKING",
-                                    movementBand = MovementBand.MODERATE,
-                                    source = DataSource.DEMO
-                                )
-                            )
-                        }
-                    )
-                }
+                MoveSmartTheme { MoveSmartApp(openReminderRequest = reminderRequest, workoutRepository = repository, sensorRepository = object : SensorRepository {
+                    override fun playback(datasetId: String) = flowOf(MotionContext(
+                        datasetId, 0, 0, listOf(0.1, 0.2, 0.9), listOf(0.01, 0.02, 0.03),
+                        "g", "rad/s", "WALKING", MovementBand.MODERATE, DataSource.DEMO))
+                }) }
             }
         }
-        if (!signedIn) compose.onNodeWithText("Explore demo").performScrollTo().performClick()
     }
 
     private fun history() = compose.onNode(hasText("History") and isSelectable()).performClick()
-    private fun assertDemoHistoryVisible() {
-        compose.waitUntil(10_000) {
-            compose.onAllNodes(hasScrollToIndexAction()).fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Existing demo walk"))
-        compose.onNodeWithText("Existing demo walk").assertIsDisplayed()
-        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(0)
-    }
     private fun assertDemoUnchanged() = runBlocking {
         val rows = repository.observe("local-demo").first()
         assertEquals(listOf("Existing demo walk"), rows.map { it.title })
@@ -148,46 +122,6 @@ class WorkoutDemoSeparationTest {
         compose.onNode(hasText("Home") and isSelectable()).assertIsSelected()
     }
 
-    @Test fun restoredFirebaseSessionCannotViewOrWriteDemoHistory() {
-        start(signedIn = true)
-        history()
-        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
-        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
-        compose.onNodeWithText("Add workout").assertExists()
-        compose.onNode(hasText("Statistics") and isSelectable()).performClick()
-        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
-        compose.onNodeWithText("Your week in motion").assertExists()
-        compose.onNode(hasText("Home") and isSelectable()).performClick()
-        compose.onNodeWithContentDescription("Search").performClick()
-        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
-        compose.onNodeWithText("My history").assertExists()
-        assertDemoUnchanged()
-    }
-
-    @Test fun signInWhileDemoEditorIsOpenRemovesPrivateInputAndSaveAction() {
-        start(signedIn = false)
-        history()
-        assertDemoHistoryVisible()
-        compose.onNodeWithText("Add workout").performClick()
-        compose.onNodeWithText("Duration (minutes)").performTextReplacement("47")
-        compose.runOnIdle { auth.currentUser.value = UserAccount("firebase-user", "Account", "account@example.com") }
-        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
-        compose.onNodeWithText("Save workout").assertDoesNotExist()
-        compose.onNodeWithText("Duration (minutes)").assertDoesNotExist()
-        assertDemoUnchanged()
-    }
-
-    @Test fun logoutRestoresExplicitDemoHistoryWithoutChangingOwnership() {
-        start(signedIn = true)
-        compose.onNode(hasText("Profile") and isSelectable()).performClick()
-        compose.onNodeWithText("Log out").performScrollTo().performClick()
-        compose.onNode(hasText("Log out") and hasAnyAncestor(isDialog())).performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Explore demo").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Explore demo").performScrollTo().performClick()
-        history()
-        assertDemoHistoryVisible()
-        assertDemoUnchanged()
-    }
 
     @Test fun signedInSampleWorkoutSavesExactlyOnceUnderTheFirebaseUid() {
         start(signedIn = true)
@@ -215,6 +149,57 @@ class WorkoutDemoSeparationTest {
             assertEquals(listOf("Existing demo walk"), demoRows.map { it.title })
         }
     }
+
+    @Test fun restoredFirebaseSessionCannotViewOrWriteDemoHistory() {
+        start(signedIn = true)
+        history()
+        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
+        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
+        compose.onNodeWithText("Add workout").assertExists()
+        compose.onNode(hasText("Statistics") and isSelectable()).performClick()
+        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
+        compose.onNodeWithText("Your week in motion").assertExists()
+        compose.onNode(hasText("Home") and isSelectable()).performClick()
+        compose.onNodeWithContentDescription("Search").performClick()
+        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
+        compose.onNodeWithText("My history").assertExists()
+        assertDemoUnchanged()
+    }
+
+    @Test fun signedOutCannotEnterDemoOrReadLegacyRecords() {
+        start(signedIn = false)
+        compose.onNodeWithText("Continue with Google").assertExists()
+        compose.onNodeWithText("Explore demo").assertDoesNotExist()
+        compose.onNode(hasText("History") and isSelectable()).assertDoesNotExist()
+        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
+        assertDemoUnchanged()
+    }
+
+    @Test fun accountSwitchRemovesOldEditorAndSaveAction() {
+        start(signedIn = true)
+        history()
+        compose.onNodeWithText("Add workout").performClick()
+        compose.onNodeWithText("Duration (minutes)").performTextReplacement("47")
+        compose.runOnIdle { auth.currentUser.value = UserAccount("firebase-b", "B", "b@example.com") }
+        compose.onNodeWithText("Save workout").assertDoesNotExist()
+        compose.onNodeWithText("Duration (minutes)").assertDoesNotExist()
+        history()
+        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
+        assertDemoUnchanged()
+    }
+
+    @Test fun logoutDuringReplayRemovesFinishActionWithoutSavingOrDemoFallback() {
+        start(signedIn = true)
+        compose.onNodeWithContentDescription("Search").performClick()
+        compose.onAllNodesWithText("Start sample workout")[0].performScrollTo().performClick()
+        compose.onNodeWithText("Finish workout").assertExists()
+        compose.runOnIdle { auth.currentUser.value = null }
+        compose.onNodeWithText("Continue with Google").assertExists()
+        compose.onNodeWithText("Finish workout").assertDoesNotExist()
+        compose.onNodeWithText("Explore demo").assertDoesNotExist()
+        assertDemoUnchanged()
+    }
+
 }
 
 private class DemoBoundaryAuth : AuthRepository {

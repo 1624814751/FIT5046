@@ -160,7 +160,7 @@ fun HistoryScreen(records: List<WorkoutRecord>, onAdd: () -> Unit, onEdit: (Int)
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item { SectionHeading("Every session counts", "Your movement, all in one place.") }
-        item { Text("Saved on this device · Demo account", style = MaterialTheme.typography.labelMedium) }
+        item { Text("Saved on this device · Your account", style = MaterialTheme.typography.labelMedium) }
         item { PrimaryButton("Add workout", onAdd, enabled = !isSaving) }
         item { Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onSearch, Modifier.weight(1f)) { Text("Search") }

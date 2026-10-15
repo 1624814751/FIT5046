@@ -2,7 +2,6 @@ package com.example.movesmart
 
 import android.app.Activity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasAnyAncestor
@@ -43,7 +42,6 @@ class ProfileLogoutUiTest {
     private lateinit var authViewModel: AuthViewModel
     private lateinit var preferencesViewModel: PreferencesViewModel
     private var logoutFinished = 0
-    private val demo = mutableStateOf(false)
     private lateinit var preferencesRepository: LoadingPreferencesRepository
 
     @Before
@@ -61,18 +59,11 @@ class ProfileLogoutUiTest {
             activity.setContent {
                 MoveSmartTheme {
                     ProfileScreen(
-                        intensity = "Medium",
-                        activities = listOf("Walking"),
-                        goal = "Stay Active",
-                        displayName = "Demo Alex",
-                        email = "demo@example.com",
-                        weeklyMinutes = 150,
                         reminderEnabled = false,
                         onReminders = {},
                         onStatistics = {},
                         onEditPreferences = {},
                         onLogout = { logoutFinished += 1 },
-                        isDemoMode = demo.value,
                         authViewModel = authViewModel,
                         preferencesViewModel = preferencesViewModel
                     )
@@ -116,16 +107,11 @@ class ProfileLogoutUiTest {
         compose.onNodeWithText("Stay Active").assertDoesNotExist()
     }
 
-    @Test fun demoUsesPrototypeValuesAndExistingLogoutCallback() {
-        compose.runOnIdle { demo.value = true }
-        compose.onNodeWithText("Demo Alex").assertIsDisplayed()
-        compose.onNodeWithText("Stay Active").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Weekly goal: 150 minutes").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Log out").performScrollTo().performClick()
-        compose.onNodeWithText("Leave the demo?").assertIsDisplayed()
-        compose.onNode(hasText("Log out") and hasAnyAncestor(isDialog())).performClick()
-        compose.waitUntil(5_000) { logoutFinished == 1 }
-        assertEquals(0, authRepository.signOutCalls)
+    @Test fun signedOutProfileCannotShowPreviousAccount() {
+        compose.runOnIdle { authRepository.userFlow.value = null }
+        compose.onNodeWithText("Signed out").assertIsDisplayed()
+        compose.onNodeWithText("Alex").assertDoesNotExist()
+        compose.onNodeWithText("alex@example.com").assertDoesNotExist()
     }
 
     @Test

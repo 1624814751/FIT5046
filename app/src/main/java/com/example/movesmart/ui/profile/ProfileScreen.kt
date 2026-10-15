@@ -47,40 +47,33 @@ import com.example.movesmart.ui.preferences.intensityToText
 // Profile screen: Display user information
 @Composable
 fun ProfileScreen(
-    intensity: String,
-    activities: List<String>,
-    goal: String,
-    displayName: String,
-    email: String,
-    weeklyMinutes: Int,
     reminderEnabled: Boolean,
     onReminders: () -> Unit,
     onStatistics: () -> Unit,
     onEditPreferences: () -> Unit,
     onLogout: () -> Unit,
-    isDemoMode: Boolean,
     authViewModel: AuthViewModel,
     preferencesViewModel: PreferencesViewModel
 ) {
     val authState by authViewModel.state.collectAsStateWithLifecycle()
     val account by authViewModel.currentUser.collectAsStateWithLifecycle()
     val preferencesState by preferencesViewModel.state.collectAsStateWithLifecycle()
-    var confirmLogout by remember(account?.userId, isDemoMode) { mutableStateOf(false) }
+    var confirmLogout by remember(account?.userId) { mutableStateOf(false) }
 
-    val shownName = if (isDemoMode) displayName else account?.displayName ?: "Signed out"
-    val shownEmail = if (isDemoMode) email else account?.email.orEmpty()
+    val shownName = account?.displayName ?: "Signed out"
+    val shownEmail = account?.email.orEmpty()
     val savedPreferences = preferencesState.preferences?.takeIf {
-        !isDemoMode && account != null && it.userId == account?.userId
+        account != null && it.userId == account?.userId
     }
-    val shownIntensity = if (isDemoMode) intensity else savedPreferences?.let { intensityToText(it.preferredIntensity) }
-    val shownActivities = if (isDemoMode) activities else savedPreferences?.activityNames
-    val shownGoal = if (isDemoMode) goal else savedPreferences?.goal
-    val shownWeeklyMinutes = if (isDemoMode) weeklyMinutes else savedPreferences?.weeklyGoalMinutes
-    val isAuthLoading = !isDemoMode && authState == UiState.Loading
-    val preferencesLoading = !isDemoMode && account != null &&
+    val shownIntensity = savedPreferences?.let { intensityToText(it.preferredIntensity) }
+    val shownActivities = savedPreferences?.activityNames
+    val shownGoal = savedPreferences?.goal
+    val shownWeeklyMinutes = savedPreferences?.weeklyGoalMinutes
+    val isAuthLoading = authState == UiState.Loading
+    val preferencesLoading = account != null &&
         (preferencesState.isLoading || preferencesState.userId != account?.userId)
     val preferencesError = preferencesState.errorMessage.takeIf {
-        !isDemoMode && account != null && preferencesState.userId == account?.userId
+        account != null && preferencesState.userId == account?.userId
     }
     val isLoading = isAuthLoading || preferencesLoading
     Column(
@@ -116,7 +109,7 @@ fun ProfileScreen(
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Exercise Preferences", color = TextInk, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                if (!isDemoMode && (savedPreferences == null || preferencesLoading || preferencesError != null)) {
+                if (savedPreferences == null || preferencesLoading || preferencesError != null) {
                     Text(when {
                         account == null -> "Sign in to view your preferences."
                         preferencesLoading -> "Loading preferences..."
@@ -159,7 +152,7 @@ fun ProfileScreen(
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
         }
-        val errorMessage = if (isDemoMode) null else (authState as? UiState.Error)?.message ?: preferencesError
+        val errorMessage = (authState as? UiState.Error)?.message ?: preferencesError
         if (errorMessage != null) {
             Text(errorMessage, color = androidx.compose.material3.MaterialTheme.colorScheme.error)
         }
@@ -180,20 +173,15 @@ fun ProfileScreen(
         }
     }
     if (confirmLogout) AlertDialog(onDismissRequest = { confirmLogout = false },
-        title = { Text(if (isDemoMode) "Leave the demo?" else "Log out?") },
+        title = { Text("Log out?") },
         text = {
             Text(
-                if (isDemoMode) "Your demo edits will be reset. You can explore again from the login screen."
-                else "Your saved preferences will stay on this device for your account."
+                "Your saved preferences will stay on this device for your account."
             )
         },
         confirmButton = { TextButton(onClick = {
             confirmLogout = false
-            if (isDemoMode) {
-                onLogout()
-            } else {
-                authViewModel.logout(onSignedOut = onLogout)
-            }
+            authViewModel.logout(onSignedOut = onLogout)
         }) { Text("Log out") } },
         dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("Cancel") } })
 }

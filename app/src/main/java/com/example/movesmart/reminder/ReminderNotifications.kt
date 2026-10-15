@@ -30,7 +30,7 @@ class ReminderNotifications(private val context: Context) {
             manager.getNotificationChannel(if (sound) SOUND_CHANNEL else SILENT_CHANNEL).importance != NotificationManager.IMPORTANCE_NONE
     }
 
-    fun show(settings: ReminderSettings): Boolean {
+    fun show(settings: ReminderSettings, occurrence: Long = System.currentTimeMillis()): Boolean {
         if (!canNotify(settings.sound)) return false
         val launch = PendingIntent.getActivity(context, 4102,
             Intent(context, MainActivity::class.java).setAction(ACTION_OPEN_REMINDERS)
@@ -41,6 +41,10 @@ class ReminderNotifications(private val context: Context) {
             .setContentTitle(settings.label)
             .setContentText("Make time for movement. Open MoveSmart to plan your activity.")
             .setContentIntent(launch).setAutoCancel(true)
+            .setWhen(occurrence)
+            .setOnlyAlertOnce(manager.activeNotifications.any {
+                it.tag == settings.userId && it.id == NOTIFICATION_ID && it.notification.`when` == occurrence
+            })
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .build()

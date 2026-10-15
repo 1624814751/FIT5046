@@ -39,6 +39,96 @@ class RecommendationViewModelTest {
         owner.put("recommendations", it)
     }
 
+    @Test fun selectionRetainsExactFieldsAndRejectsOtherAccountsBeforeCollectorRuns() = runTest {
+        val model = model()
+        runCurrent()
+        model.generateRecommendation(plan, null)
+        runCurrent()
+        val activity = (model.state.value as UiState.Success).data!!.recommendation
+        assertFalse(model.selectRecommendation("obsolete-id"))
+        assertTrue(model.selectRecommendation(activity.id))
+        val selection = model.selectionForUser("a")!!
+        assertEquals("a", selection.userId)
+        assertEquals(activity.id, selection.recommendationId)
+        assertEquals(activity.activityName, selection.activityName)
+        assertEquals(activity.minutes, selection.minutes)
+        assertEquals(activity.intensity, selection.intensity)
+        auth.currentUser.value = UserAccount("b", "B", "b@example.com")
+        assertNull(model.selectionForUser("a"))
+        assertNull(model.selectionForUser("b"))
+        assertEquals(UiState.Idle, model.stateForUser("b"))
+        assertFalse(model.selectRecommendation(activity.id))
+        runCurrent()
+        assertNull(model.selection.value)
+        auth.currentUser.value = UserAccount("a", "A", "a@example.com")
+        runCurrent()
+        assertNull(model.selection.value)
+        owner.clear()
+    }
+
+    @Test fun planChangeCancelsPendingResultAndClearsSelectionAndRetryInput() = runTest {
+        val model = model()
+        runCurrent()
+        model.generateRecommendation(plan, null)
+        runCurrent()
+        val id = (model.state.value as UiState.Success).data!!.recommendation.id
+        assertTrue(model.selectRecommendation(id))
+        val gate = CompletableDeferred<Unit>()
+        stores.getValue("a").saveGate = gate
+        model.generateRecommendation(plan.copy(availableMinutes = 15), null)
+        runCurrent()
+        model.invalidatePlan()
+        gate.complete(Unit)
+        runCurrent()
+        model.retry()
+        runCurrent()
+        assertNull(model.selection.value)
+        assertEquals(UiState.Idle, model.state.value)
+        assertFalse(model.selectRecommendation(id))
+        owner.clear()
+    }
+
+    @Test fun preferencesChangesAndLogoutInvalidateSelection() = runTest {
+        val model = model()
+        runCurrent()
+        model.generateRecommendation(plan, null)
+        runCurrent()
+        model.selectRecommendation((model.state.value as UiState.Success).data!!.recommendation.id)
+        preferences.values.getValue("a").value = savedPreference("a").copy(weeklyGoalMinutes = 200)
+        runCurrent()
+        assertNull(model.selection.value)
+        model.generateRecommendation(plan, null)
+        runCurrent()
+        model.selectRecommendation((model.state.value as UiState.Success).data!!.recommendation.id)
+        auth.currentUser.value = null
+        assertNull(model.selectionForUser("a"))
+        runCurrent()
+        assertNull(model.selection.value)
+        owner.clear()
+    }
+
+    @Test fun changedCoordinatesAndWeatherInvalidateResultsBeforeEffectsAndClearRetry() = runTest {
+        val model = model()
+        runCurrent()
+        val weather = WeatherContext(WeatherQuery(plan.location, plan.date), 18.0, 20, 10.0, now, DataSource.LIVE, false)
+        model.generateRecommendation(plan, weather)
+        runCurrent()
+        val activity = (model.state.value as UiState.Success).data!!.recommendation
+        model.selectRecommendation(activity.id)
+        val next = plan.copy(location = plan.location.copy(longitude = 145.2))
+        assertEquals(UiState.Idle, model.stateForContext("a", next, null))
+        assertEquals(UiState.Idle, model.stateForContext("a", plan, weather.copy(isStale = true)))
+        model.syncContext(next, null)
+        model.retry()
+        runCurrent()
+        assertNull(model.selection.value)
+        assertEquals(UiState.Idle, model.state.value)
+        model.generateRecommendation(next, weather.copy(query = WeatherQuery(next.location, next.date)))
+        runCurrent()
+        assertEquals(next.location, (model.state.value as UiState.Success).data!!.recommendation.location)
+        owner.clear()
+    }
+
     @Test fun savedPreferencesWeatherTimeAndMotionReachTheEngineAndStore() = runTest {
         val model = model()
         runCurrent()

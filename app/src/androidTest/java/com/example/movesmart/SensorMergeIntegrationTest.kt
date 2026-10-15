@@ -28,20 +28,20 @@ class SensorMergeIntegrationTest {
         if (compose.mainClock.autoAdvance) node.performScrollTo()
         node.performClick()
     }
-    @Test fun demoPlaybackPauseFinishHistoryAndStatistics() {
+    @Test fun authenticatedReplayPauseFinishHistoryStatisticsAndAccountIsolation() {
         val auth = object : AuthRepository {
-            override val currentUser = MutableStateFlow<UserAccount?>(null)
+            override val currentUser = MutableStateFlow<UserAccount?>(UserAccount("firebase-a", "Alice", "a@example.com"))
             override suspend fun signIn(email: String, password: String) = Result.failure<UserAccount>(UnsupportedOperationException())
             override suspend fun signUp(displayName: String, email: String, password: String) = signIn(email, password)
             override suspend fun signInWithGoogle(idToken: String) = signIn("", "")
-            override suspend fun signOut() = Result.success(Unit)
+            override suspend fun signOut(): Result<Unit> { currentUser.value = null; return Result.success(Unit) }
         }
         val google = object : GoogleLoginProvider {
             override suspend fun getIdToken(activity: android.app.Activity) = Result.failure<String>(UnsupportedOperationException())
             override suspend fun clear() = Result.success(Unit)
         }
         val prefs = object : PreferencesRepository {
-            override fun observe(userId: String) = MutableStateFlow<UserPreferences?>(null)
+            override fun observe(userId: String) = MutableStateFlow<UserPreferences?>(UserPreferences(userId, "Stay active", Intensity.MEDIUM, 150, emptyList(), Environment.ANY))
             override suspend fun save(preferences: UserPreferences) = Result.success(Unit)
         }
         compose.activityRule.scenario.onActivity { activity ->
@@ -52,14 +52,12 @@ class SensorMergeIntegrationTest {
                 workoutRepository = activity.workoutRepository,
                 authViewModelOverride = authVm, preferencesViewModelOverride = prefsVm) } }
         }
-        tap("Explore demo")
-        tap("Find an activity")
-        tap("See recommendation")
-        compose.onNode(hasText("Start activity") and hasClickAction()).performScrollTo()
+        compose.onNodeWithContentDescription("Search").performClick()
+        compose.onAllNodesWithText("Start sample workout")[0].performScrollTo()
         compose.waitForIdle()
         // Continuous 50 Hz playback never settles under automatic clock advancement.
         compose.mainClock.autoAdvance = false
-        compose.onNode(hasText("Start activity") and hasClickAction()).performClick()
+        compose.onAllNodesWithText("Start sample workout")[0].performClick()
         compose.mainClock.advanceTimeBy(500)
         compose.waitUntil(15_000) {
             compose.onAllNodesWithText("Source: UCI HAPT public dataset · Demo playback").fetchSemanticsNodes().isNotEmpty()
@@ -76,8 +74,8 @@ class SensorMergeIntegrationTest {
         compose.onNode(hasText("Save session") and hasAnyAncestor(isDialog())).performClick()
         compose.mainClock.advanceTimeBy(500)
         val repository = compose.activity.workoutRepository
-        compose.waitUntil(15_000) { runBlocking { repository.observe("local-demo").first().size == 1 } }
-        val record = runBlocking { repository.observe("local-demo").first().single() }
+        compose.waitUntil(15_000) { runBlocking { repository.observe("firebase-a").first().size == 1 } }
+        val record = runBlocking { repository.observe("firebase-a").first().single() }
         assertEquals(DataSource.DEMO, record.source)
         assertNotNull(record.startedAt)
         assertTrue(record.minutes >= 1)
@@ -85,6 +83,15 @@ class SensorMergeIntegrationTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Every session counts").fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(hasText("Statistics") and isSelectable()).performClick()
         compose.onNodeWithContentDescription("Weekly goal: ${record.minutes} of 150 minutes").assertExists()
-        assertTrue(runBlocking { repository.observe("other-account").first().isEmpty() })
+        compose.runOnIdle { auth.currentUser.value = UserAccount("firebase-b", "Bob", "b@example.com") }
+        compose.onNode(hasText("History") and isSelectable()).performClick()
+        compose.onNodeWithText("No workouts yet").assertExists()
+        compose.onNode(hasText("Statistics") and isSelectable()).performClick()
+        compose.onNodeWithContentDescription("Weekly goal: 0 of 150 minutes").assertExists()
+        assertTrue(runBlocking { repository.observe("firebase-b").first().isEmpty() })
+        compose.runOnIdle { auth.currentUser.value = null }
+        compose.onNodeWithText("Continue with Google").assertExists()
+        compose.onNodeWithText("Explore demo").assertDoesNotExist()
+        assertEquals(listOf(record), runBlocking { repository.observe("firebase-a").first() })
     }
 }

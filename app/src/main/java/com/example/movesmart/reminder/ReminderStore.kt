@@ -57,6 +57,10 @@ class ReminderStore(context: Context) : ReminderRepository {
         set(value) { check(prefs.edit().putString("active_user", value).commit()) { "Could not save reminder session." } }
 
     fun scheduledAt(userId: String): Long = prefs.getLong("scheduled:$userId", 0)
+    fun pendingDelivery(userId: String): Long = prefs.getLong("pending_delivery:$userId", 0)
+    fun setPendingDelivery(userId: String, millis: Long) {
+        check(prefs.edit().putLong("pending_delivery:$userId", millis).commit()) { "Could not save pending reminder." }
+    }
     fun setScheduledAt(userId: String, millis: Long) {
         check(prefs.edit().putLong("scheduled:$userId", millis).commit()) { "Could not save reminder schedule." }
     }

@@ -64,17 +64,34 @@ class WorkoutRoomUiTest {
         sensorRepository: SensorRepository? = null,
         reminderRequest: () -> Int = { 0 }
     ) {
+        val auth = object : AuthRepository {
+            override val currentUser = MutableStateFlow<UserAccount?>(UserAccount("firebase-a", "Alice", "a@example.com"))
+            override suspend fun signIn(email: String, password: String) = Result.success(requireNotNull(currentUser.value))
+            override suspend fun signUp(displayName: String, email: String, password: String) = signIn(email, password)
+            override suspend fun signInWithGoogle(idToken: String) = signIn("", "")
+            override suspend fun signOut(): Result<Unit> { currentUser.value = null; return Result.success(Unit) }
+        }
+        val google = object : GoogleLoginProvider {
+            override suspend fun getIdToken(activity: Activity) = Result.failure<String>(UnsupportedOperationException())
+            override suspend fun clear() = Result.success(Unit)
+        }
+        val preferences = object : PreferencesRepository {
+            override fun observe(userId: String) = flowOf(UserPreferences(userId, "Stay active", Intensity.MEDIUM, 150, emptyList(), Environment.ANY))
+            override suspend fun save(preferences: UserPreferences) = Result.success(Unit)
+        }
         compose.setContent {
+            val authVm = remember { AuthViewModel(auth, google) }
+            val preferencesVm = remember { PreferencesViewModel(auth, preferences) }
             backDispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
             MoveSmartTheme {
                 MoveSmartApp(
                     openReminderRequest = reminderRequest(),
                     workoutRepository = repository,
-                    sensorRepository = sensorRepository
+                    sensorRepository = sensorRepository,
+                    authViewModelOverride = authVm, preferencesViewModelOverride = preferencesVm
                 )
             }
         }
-        compose.onNode(hasText("Explore demo") and hasClickAction()).performScrollTo().performClick()
     }
     private fun tap(text: String) = compose.onNode(hasText(text) and hasClickAction()).performClick()
     private fun scrollTap(text: String) {
@@ -106,7 +123,7 @@ class WorkoutRoomUiTest {
         compose.onNodeWithText("Duration (minutes)").performTextReplacement("45")
         compose.onNodeWithContentDescription("Back").performClick()
         assertHistoryText("No workouts yet")
-        assertTrue(runBlocking { repository.observe("local-demo").firstRows() }.isEmpty())
+        assertTrue(runBlocking { repository.observe("firebase-a").firstRows() }.isEmpty())
     }
 
     @Test fun savedRecordsReachStatisticsAndEditsAndDeletesPersist() {
@@ -117,7 +134,7 @@ class WorkoutRoomUiTest {
         compose.onNodeWithText("Duration (minutes)").performTextReplacement("45")
         scrollTap("Save workout")
         assertHistoryText("Every session counts")
-        compose.waitUntil(10_000) { runBlocking { repository.observe("local-demo").firstRowCount() } == 1 }
+        compose.waitUntil(10_000) { runBlocking { repository.observe("firebase-a").firstRowCount() } == 1 }
         // On the 320x470 host display, the feedback snackbar covers the Edit button.
         compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.Dismiss))
             .performSemanticsAction(SemanticsActions.Dismiss) { it() }
@@ -145,7 +162,7 @@ class WorkoutRoomUiTest {
         scrollTap("Delete")
         compose.onNode(hasText("Delete") and hasAnyAncestor(isDialog())).performClick()
         assertHistoryText("No workouts yet")
-        assertTrue(runBlocking { repository.observe("local-demo").firstRows() }.isEmpty())
+        assertTrue(runBlocking { repository.observe("firebase-a").firstRows() }.isEmpty())
         statistics()
         compose.onNodeWithContentDescription("Weekly goal: 0 of 150 minutes").assertExists()
     }
@@ -156,16 +173,15 @@ class WorkoutRoomUiTest {
             override fun playback(datasetId: String): Flow<MotionContext> = kotlinx.coroutines.flow.emptyFlow()
         }
         start(sensorRepository = sensors, reminderRequest = { request.intValue })
-        scrollTap("Find an activity")
-        scrollTap("See recommendation")
-        scrollTap("Start activity")
+        compose.onNodeWithContentDescription("Search").performClick()
+        compose.onAllNodesWithText("Start sample workout")[0].performScrollTo().performClick()
         compose.runOnIdle { request.intValue = 1 }
         compose.onNodeWithText("Live workout").assertExists()
         compose.onNodeWithText("Saved on this device. Android may delay reminders to save battery.").assertDoesNotExist()
         compose.onNodeWithContentDescription("Back").performClick()
         tap("Leave without saving")
         waitForText("Saved on this device. Android may delay reminders to save battery.")
-        assertTrue(runBlocking { repository.observe("local-demo").firstRows() }.isEmpty())
+        assertTrue(runBlocking { repository.observe("firebase-a").firstRows() }.isEmpty())
     }
 
     @Test fun liveSensorPlaybackSavesOneMeasuredDemoRecord() {
@@ -187,9 +203,8 @@ class WorkoutRoomUiTest {
         }
         start(sensorRepository = sensorRepository)
 
-        scrollTap("Find an activity")
-        scrollTap("See recommendation")
-        scrollTap("Start activity")
+        compose.onNodeWithContentDescription("Search").performClick()
+        compose.onAllNodesWithText("Start sample workout")[0].performScrollTo().performClick()
         waitForText("Dataset activity: WALKING")
         compose.onNodeWithText("112 bpm").assertDoesNotExist()
         compose.onNodeWithContentDescription("Back").performClick()
@@ -200,13 +215,14 @@ class WorkoutRoomUiTest {
         compose.onNodeWithText("Leave this workout?").assertExists()
         tap("Stay in workout")
 
+
         scrollTap("Finish workout")
         compose.onNode(hasText("Save session") and hasAnyAncestor(isDialog())).performClick()
         compose.waitUntil(10_000) {
-            runBlocking { repository.observe("local-demo").firstRows().size == 1 }
+            runBlocking { repository.observe("firebase-a").firstRows().size == 1 }
         }
 
-        val saved = runBlocking { repository.observe("local-demo").firstRows().single() }
+        val saved = runBlocking { repository.observe("firebase-a").firstRows().single() }
         assertEquals(DataSource.DEMO, saved.source)
         assertNotNull(saved.startedAt)
         assertEquals(1, saved.minutes)
@@ -215,8 +231,8 @@ class WorkoutRoomUiTest {
     @Test fun statisticsPeriodsUseSavedRecordsAndExcludeOtherUsers() {
         val today = LocalDate.now()
         runBlocking {
-            repository.upsert(WorkoutRecord(0, "local-demo", "Today", 25, today, null, DataSource.LIVE)).getOrThrow()
-            repository.upsert(WorkoutRecord(0, "local-demo", "Last month", 40,
+            repository.upsert(WorkoutRecord(0, "firebase-a", "Today", 25, today, null, DataSource.LIVE)).getOrThrow()
+            repository.upsert(WorkoutRecord(0, "firebase-a", "Last month", 40,
                 today.withDayOfMonth(1).minusDays(1), null, DataSource.LIVE)).getOrThrow()
             repository.upsert(WorkoutRecord(0, "another-user", "Private workout", 99, today, null, DataSource.LIVE)).getOrThrow()
         }
@@ -275,9 +291,47 @@ class WorkoutRoomUiTest {
         compose.onNodeWithContentDescription("Weekly goal: 25 of 150 minutes").assertDoesNotExist()
         val reminders = com.example.movesmart.reminder.ReminderService.get(ApplicationProvider.getApplicationContext())
         compose.waitUntil(10_000) { reminders.store.activeUser == "firebase-b" }
+        compose.runOnIdle { accounts.value = UserAccount("firebase-a", "Alice", "a@example.com") }
+        waitForText("Hi, Alice")
+        compose.onNodeWithText("Your week in motion").assertDoesNotExist()
+        history()
+        waitForText("A walk")
+        compose.onNodeWithText("B walk").assertDoesNotExist()
+        statistics()
+        waitForText("Your week in motion")
+        compose.onNodeWithContentDescription("Weekly goal: 25 of 150 minutes").assertExists()
+        compose.onNodeWithContentDescription("Weekly goal: 40 of 150 minutes").assertDoesNotExist()
+        compose.waitUntil(10_000) { reminders.store.activeUser == "firebase-a" }
+        runBlocking {
+            assertEquals(listOf("A walk"), repository.observe("firebase-a").firstRows().map { it.title })
+            assertEquals(listOf("B walk"), repository.observe("firebase-b").firstRows().map { it.title })
+        }
         compose.runOnIdle { accounts.value = null }
-        waitForText("Explore demo")
+        waitForText("Continue with Google")
         compose.waitUntil(10_000) { reminders.store.activeUser == null }
+    }
+
+    @Test fun notificationWaitsUntilEditorSaveCompletesAndRecordIsPersisted() {
+        val request = androidx.compose.runtime.mutableIntStateOf(0)
+        val gate = CompletableDeferred<Unit>()
+        val delayed = object : WorkoutRepository by repository {
+            override suspend fun upsert(record: WorkoutRecord): Result<Int> {
+                gate.await()
+                return repository.upsert(record)
+            }
+        }
+        start(delayed, reminderRequest = { request.intValue })
+        history()
+        tap("Add workout")
+        compose.onNodeWithText("Duration (minutes)").performTextReplacement("47")
+        compose.runOnIdle { request.intValue = 1 }
+        scrollTap("Save workout")
+        waitForText("Saving…")
+        compose.onNodeWithText("Saved on this device. Android may delay reminders to save battery.").assertDoesNotExist()
+        compose.runOnIdle { gate.complete(Unit) }
+        waitForText("Saved on this device. Android may delay reminders to save battery.")
+        assertEquals(47, runBlocking { repository.observe("firebase-a").firstRows().single().minutes })
+        assertTrue(runBlocking { repository.observe("local-demo").firstRows() }.isEmpty())
     }
 
     @Test fun failedSaveKeepsEditorInputAndShowsAnError() {
@@ -293,7 +347,7 @@ class WorkoutRoomUiTest {
         waitForText("Could not save workout. Please try again.")
         compose.onNodeWithText("Duration (minutes)").assertTextContains("47")
         compose.onNodeWithText("Save workout").assertIsEnabled()
-        assertTrue(runBlocking { repository.observe("local-demo").firstRows() }.isEmpty())
+        assertTrue(runBlocking { repository.observe("firebase-a").firstRows() }.isEmpty())
     }
 
     @Test fun readFailureHasRetryAndNeverShowsFakeRecords() {

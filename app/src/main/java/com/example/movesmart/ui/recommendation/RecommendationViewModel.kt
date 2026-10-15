@@ -10,6 +10,7 @@ import com.example.movesmart.shared.AuthRepository
 import com.example.movesmart.shared.ContextDecision
 import com.example.movesmart.shared.ContextInput
 import com.example.movesmart.shared.MotionContext
+import com.example.movesmart.shared.Intensity
 import com.example.movesmart.shared.PlanningInput
 import com.example.movesmart.shared.PreferencesRepository
 import com.example.movesmart.shared.RecommendationEngine
@@ -29,6 +30,14 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.time.Clock
 
+data class RecommendationSelection(
+    val userId: String,
+    val recommendationId: String,
+    val activityName: String,
+    val minutes: Int,
+    val intensity: Intensity
+)
+
 // Recommendations: Manage recommendation results
 class RecommendationViewModel(
     private val authRepository: AuthRepository,
@@ -39,6 +48,48 @@ class RecommendationViewModel(
 ) : ViewModel() {
     private val stateFlow = MutableStateFlow<UiState<ContextDecision?>>(UiState.Idle)
     val state = stateFlow.asStateFlow()
+    private val selectionFlow = MutableStateFlow<RecommendationSelection?>(null)
+    val selection = selectionFlow.asStateFlow()
+
+    // Check the synchronous auth value as well as the collector's owner. A click or
+    // recomposition can arrive before the account-change coroutine has run.
+    fun stateForUser(id: String?): UiState<ContextDecision?> =
+        if (id != null && id == userId && id == authRepository.currentUser.value?.userId) stateFlow.value
+        else UiState.Idle
+
+    fun selectionForUser(id: String?): RecommendationSelection? =
+        selectionFlow.value?.takeIf {
+            id != null && it.userId == id && id == userId && id == authRepository.currentUser.value?.userId
+        }
+
+    // Guard during composition as well as in the asynchronous invalidation effect.
+    fun stateForContext(id: String, plan: PlanningInput?, weather: WeatherContext?): UiState<ContextDecision?> =
+        if (lastPlan != null && (lastPlan != plan || lastWeather != weather)) UiState.Idle else stateForUser(id)
+
+    fun syncContext(plan: PlanningInput?, weather: WeatherContext?) {
+        if (lastPlan != null && (lastPlan != plan || lastWeather != weather)) invalidatePlan()
+    }
+
+    fun selectRecommendation(recommendationId: String): Boolean {
+        val id = authRepository.currentUser.value?.userId ?: return false
+        val decision = (stateForUser(id) as? UiState.Success)?.data ?: return false
+        val recommendation = decision.recommendation
+        if (recommendation.id != recommendationId) return false
+        selectionFlow.value = RecommendationSelection(id, recommendation.id,
+            recommendation.activityName, recommendation.minutes, recommendation.intensity)
+        return true
+    }
+
+    fun invalidatePlan() {
+        version++
+        resultJob?.cancel()
+        selectionFlow.value = null
+        lastPlan = null
+        lastWeather = null
+        lastMotion = null
+        lastRecommendationId = null
+        if (preferencesLoaded && preferences != null) stateFlow.value = UiState.Idle
+    }
     private var userId: String? = null
     private var preferences: UserPreferences? = null
     private var preferencesLoaded = false
@@ -67,6 +118,7 @@ class RecommendationViewModel(
     }
 
     private fun observePreferences() {
+        selectionFlow.value = null
         version++
         resultJob?.cancel()
         preferencesJob?.cancel()
@@ -86,6 +138,7 @@ class RecommendationViewModel(
                     if (authRepository.currentUser.value?.userId == id && userId == id) {
                         require(saved == null || saved.userId == id) { "Preferences do not belong to this account." }
                         if (!preferencesLoaded || preferences != saved) {
+                            selectionFlow.value = null
                             version++
                             resultJob?.cancel()
                             preferences = saved
@@ -100,6 +153,7 @@ class RecommendationViewModel(
                 throw error
             } catch (error: Exception) {
                 if (authRepository.currentUser.value?.userId == id && userId == id) {
+                    selectionFlow.value = null
                     version++
                     resultJob?.cancel()
                     preferences = null
@@ -112,6 +166,7 @@ class RecommendationViewModel(
     }
 
     fun generateRecommendation(plan: PlanningInput, weather: WeatherContext?, motion: MotionContext? = null) {
+        selectionFlow.value = null
         lastPlan = plan
         lastWeather = weather
         lastMotion = motion
@@ -148,6 +203,7 @@ class RecommendationViewModel(
     }
 
     fun loadRecommendation(recommendationId: String) {
+        selectionFlow.value = null
         lastRecommendationId = recommendationId
         lastPlan = null
         lastWeather = null
@@ -162,6 +218,7 @@ class RecommendationViewModel(
                 userStore.observe(recommendationId).collect { recommendation ->
                     currentCoroutineContext().ensureActive()
                     if (isCurrent(id, requestVersion)) {
+                        selectionFlow.value = null
                         stateFlow.value = UiState.Success(recommendation?.let { ContextDecision(it, null) })
                     }
                 }

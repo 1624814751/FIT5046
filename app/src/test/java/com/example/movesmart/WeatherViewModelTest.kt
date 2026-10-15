@@ -22,6 +22,39 @@ import org.junit.Test
 class WeatherViewModelTest {
     @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
+    @Test fun clearingLocationRejectsLateResponseAndRetryAndHidesPreviousErrors() = runTest {
+        val gate = CompletableDeferred<WeatherContext>()
+        var calls = 0
+        val model = WeatherViewModel(object : WeatherRepository {
+            override fun observe(query: WeatherQuery) = emptyFlow<WeatherContext?>()
+            override suspend fun refresh(query: WeatherQuery): Result<WeatherContext> {
+                calls++
+                return withContext(NonCancellable) { Result.success(gate.await()) }
+            }
+        })
+        model.loadWeather(weatherQuery)
+        runCurrent()
+        model.clearLocation()
+        gate.complete(liveWeather())
+        runCurrent()
+        model.retryWeather()
+        assertEquals(1, calls)
+        assertEquals(UiState.Idle, model.state.value)
+        assertEquals(UiState.Loading, model.stateForQuery(weatherQuery))
+        assertEquals(UiState.Idle, model.stateForQuery(null))
+    }
+
+    @Test fun repositoryResponseForWrongCoordinatesIsRejected() = runTest {
+        val model = WeatherViewModel(object : WeatherRepository {
+            override fun observe(query: WeatherQuery) = emptyFlow<WeatherContext?>()
+            override suspend fun refresh(query: WeatherQuery) = Result.success(liveWeather().copy(
+                query = query.copy(location = query.location.copy(latitude = 0.0))))
+        })
+        model.loadWeather(weatherQuery)
+        runCurrent()
+        assertTrue(model.state.value is UiState.Error)
+    }
+
     @Test fun leavingSessionStopsCacheUpdatesAndClearsRetryQuery() = runTest {
         val saved = MutableStateFlow<WeatherContext?>(null)
         var requests = 0
