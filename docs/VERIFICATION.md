@@ -1,5 +1,20 @@
 # Verification — integrated A2 build, 11 September 2026
 
+## A4 local verification update — 15 October 2026
+
+On `member-d-integration` based on `1f54f5c`, with the local Google sign-in button fix:
+
+- Debug and Android test APK builds, lint, and all 209 JVM tests passed.
+- On Pixel 9 (2), API 37, real Google consent and Firebase login reached the signed-in Home screen. The explicit sign-in button now uses `GetSignInWithGoogleOption`; the previous bottom-sheet request timed out despite a Google account being present.
+- A fresh account showed zero sessions/minutes in weekly and monthly Statistics, without demo records. Saving default preferences enabled Find an activity.
+- Live Melbourne forecast loaded (14.9 °C, rain 0, wind 1.9 km/h in this run); the activity details showed a 30-minute indoor Swimming recommendation and its rationale.
+- Activity Details opened Reminder Settings. Saving the default Mon/Wed/Fri 18:30 reminder displayed “Reminder saved and scheduled” and the next occurrence. Disabling and saving displayed “Scheduled notifications cancelled”; reminders were left disabled after the check.
+- The separate device runs passed all six `ReminderIntegrationTest` cases and the Room persistence/user-isolation test. Receiver-triggered notification checks are not evidence of real timed AlarmManager delivery.
+
+Not yet verified for a final recording: actual timed notification delivery and notification-tap navigation, a populated signed-in History/Statistics UI flow, and switching between two real accounts. Real-account live workout tracking remains unconnected in this integration; demo workout playback must not be presented as real tracking. These checks do not certify the whole assignment as complete.
+
+The historical A2 results below describe the older prototype, not the current A4 acceptance status.
+
 Verified on `member-d-dev` after integrating A `f611cd0`, B `075a39c`, C `6534891`, and D `59f6c39`. See [TEAM_INTEGRATION.md](TEAM_INTEGRATION.md) for exact source handling.
 
 | Check | Final result |

@@ -231,6 +231,13 @@ class PrototypeUiTest {
         compose.onNodeWithText("Password", substring = false).performScrollTo().performTextReplacement("demo passphrase 123")
         compose.onNodeWithText("Confirm Password").performScrollTo().performTextReplacement("demo passphrase 123")
         scrollTap("Create Account")
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Exercise Preferences").fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithText("Find an activity").fetchSemanticsNodes().isNotEmpty()
+        }
+        if (compose.onAllNodesWithText("Exercise Preferences").fetchSemanticsNodes().isEmpty()) {
+            scrollTap("Preferences")
+        }
         compose.onNodeWithText("Exercise Preferences").assertExists()
         scrollTap("High")
         compose.onNodeWithText("Weekly movement goal (minutes)").performScrollTo().performClick()
@@ -240,15 +247,16 @@ class PrototypeUiTest {
         assertEquals("onboarding-test-user", preferences.saved.value?.userId)
         assertEquals(Intensity.HIGH, preferences.saved.value?.preferredIntensity)
         scrollTap("Find an activity")
-        compose.onNodeWithText("High").assertExists()
-        scrollTap("See recommendation")
-        compose.onNodeWithText("Outdoor Jogging").assertExists()
+        compose.onNodeWithText("HIGH").assertExists()
+        compose.onNodeWithText("Load weather").assertExists()
+        // Real weather delivery is validated separately; this test remains offline.
+        compose.onNodeWithText("Show activity details").assertIsNotEnabled()
         tap("Profile")
         compose.onNodeWithText("Integration Tester").assertExists()
         compose.onNodeWithText("tester@example.com").assertExists()
         scrollTap("View statistics")
-        compose.onNodeWithText("Workout demo only").assertIsDisplayed()
-        compose.onNodeWithText("Your week in motion").assertDoesNotExist()
+        compose.onNodeWithText("Your week in motion").assertExists()
+        compose.onNodeWithContentDescription("Weekly goal: 0 of 180 minutes").assertExists()
         assertTrue(runBlocking { compose.activity.workoutRepository.observe("local-demo").first() }.isEmpty())
         assertTrue(runBlocking { compose.activity.workoutRepository.observe("onboarding-test-user").first() }.isEmpty())
     }

@@ -22,6 +22,30 @@ import org.junit.Test
 class WeatherViewModelTest {
     @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
+    @Test fun leavingSessionStopsCacheUpdatesAndClearsRetryQuery() = runTest {
+        val saved = MutableStateFlow<WeatherContext?>(null)
+        var requests = 0
+        val repository = object : WeatherRepository {
+            override fun observe(query: WeatherQuery) = saved
+            override suspend fun refresh(query: WeatherQuery): Result<WeatherContext> {
+                requests++
+                return Result.success(liveWeather())
+            }
+        }
+        val model = WeatherViewModel(repository)
+        val owner = ViewModelStore().apply { put("weather", model) }
+        model.loadWeather(weatherQuery)
+        runCurrent()
+        assertTrue(model.state.value is UiState.Success)
+        model.stopObserving()
+        saved.value = liveWeather().copy(source = DataSource.CACHE)
+        model.retryWeather()
+        runCurrent()
+        assertEquals(UiState.Idle, model.state.value)
+        assertEquals(1, requests)
+        owner.clear()
+    }
+
     @Test fun laterWorkerCacheRecoversAfterInitialRefreshFailure() = runTest {
         val saved = MutableStateFlow<WeatherContext?>(null)
         val repository = object : WeatherRepository {

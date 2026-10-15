@@ -6,7 +6,7 @@ The A2 Reminder Settings screen only updated temporary UI state. This change per
 
 `shared/SharedModels.kt` and `shared/ModuleContracts.kt` are copied unchanged from the supplied `MoveSmart_A4_Group114_Phase1_Starter.zip`. `ReminderStore` implements the shared `ReminderRepository`; `AndroidReminderScheduler` implements `ReminderScheduler`. Settings are keyed by `userId`, with ISO weekdays and an IANA time zone. This does not implement or change A's authentication/weather or C's Room/sensor modules.
 
-The current A2 application has no authenticated user ID. `MoveSmartApp` therefore uses the explicit `local-demo` adapter. A's integration must replace this with `UserAccount.userId`, activate that user's reminder session after sign-in and call `ReminderService.logout()` at sign-out. An active session is persisted for background restore. Settings are kept locally after logout but their alarm is cancelled; signing back in restores an enabled schedule. This is not a claim that multi-user authentication is complete.
+The original milestone used an explicit `local-demo` adapter. On `member-d-integration`, `MoveSmartApp` now uses A's `UserAccount.userId` for real sessions, activates that user's reminders on sign-in, and calls `ReminderService.logout()` on sign-out. Explore demo retains its separate `local-demo` scope. An active session is persisted for background restore. Settings are kept locally after logout but their alarm is cancelled; signing back in restores an enabled schedule. Host tests cover account changes and reminder isolation; real Firebase sign-in and on-device delivery remain unverified.
 
 ## Scheduling and delivery
 
@@ -24,9 +24,9 @@ The app and Android test APK compile. All 22 JVM tests pass (the 11 existing tes
 
 New JVM tests cover same-day scheduling, past/equal trigger times, weekday rollover, midnight, disabled/invalid settings, Melbourne daylight-saving transitions and an independent saved time zone. The existing UI tests were updated for the new default-off and persistent reminder behavior.
 
-Six device integration tests compile and are ready in `ReminderIntegrationTest`: persistence/user isolation; edit/cancel; account switching/logout; the restore path; explicit PendingIntent delivery through the receiver and notification manager (independent of inexact alarm timing); and the silent channel. They have NOT been executed in this environment. The installed emulator fails before Android boots (`Illegal instruction` in headless mode and a Qt `neon` compatibility error in windowed mode). The failure is in the host emulator, not evidence of an application test failure or success.
+On 14 October 2026, all six `ReminderIntegrationTest` tests passed on a clean Pixel 9 (2) API 37 emulator launched through Android Studio's Running Devices panel: persistence/user isolation, edit/cancel, account switching/logout, restore path, direct PendingIntent receiver/notification delivery, and silent channel. Earlier command-line emulator launches failed before boot; the Android Studio launch succeeded. This is not evidence of actual timed AlarmManager delivery or a physical reboot. The separate `WorkoutDatabaseIntegrationTest` also passed, checking persistence after reopening and rejection of cross-user reads/updates/deletes.
 
-Run on an API 36+ emulator/device after resolving that host issue:
+To repeat on a working API 36+ emulator/device:
 
 ```sh
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:assembleDebugAndroidTest
@@ -50,7 +50,7 @@ The real alarm check remains pending until delivery is observed on a working dev
 
 ## Remaining D work
 
-Connect Home/planning/details to A's real weather/recommendation contracts, connect Statistics to C's persisted records with daily/monthly/date filtering, and complete integrated device tests. Real reminders do not make the other demo modules production implementations.
+Home/planning/details now use A's weather/recommendation contracts, and daily/weekly/monthly Statistics consumes C's Room records by Firebase UID on the local integration branch. Device acceptance still remains: actual login, notification permission/channel handling, alarm delivery and taps, reboot/clock-change restore. C's live sensor/session integration and final submission evidence are also pending. See README for the 14 October configuration and build results.
 
 ## Sources
 
