@@ -61,6 +61,7 @@ fun SignUpScreen(
     authViewModel: AuthViewModel
 ) {
     val authState by authViewModel.state.collectAsStateWithLifecycle()
+    val activeUser by authViewModel.currentUser.collectAsStateWithLifecycle()
     var name by rememberSaveable { mutableStateOf("") }
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -72,9 +73,9 @@ fun SignUpScreen(
     val focusManager = LocalFocusManager.current
     val isLoading = authState == UiState.Loading
 
-    LaunchedEffect(authState) {
+    LaunchedEffect(authState, activeUser?.userId) {
         val account = (authState as? UiState.Success)?.data ?: return@LaunchedEffect
-        if (handledUserId != account.userId) {
+        if (activeUser?.userId == account.userId && handledUserId != account.userId) {
             handledUserId = account.userId
             onCreateAccount(account.displayName, account.email)
         }

@@ -1,6 +1,14 @@
 package com.example.movesmart
 
 import androidx.compose.ui.test.*
+import androidx.compose.runtime.remember
+import android.app.Activity
+import com.example.movesmart.shared.*
+import com.example.movesmart.ui.auth.AuthViewModel
+import com.example.movesmart.ui.preferences.PreferencesViewModel
+import com.example.movesmart.data.remote.GoogleLoginProvider
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -11,8 +19,8 @@ import com.example.movesmart.data.local.MoveSmartDatabase
 import com.example.movesmart.data.local.RoomWorkoutRepository
 import com.example.movesmart.navigation.MoveSmartApp
 import com.example.movesmart.shared.WorkoutRepository
-import com.example.movesmart.shared.WorkoutRecord
 import com.example.movesmart.shared.DataSource
+import com.example.movesmart.shared.WorkoutRecord
 import com.example.movesmart.shared.MotionContext
 import com.example.movesmart.shared.MovementBand
 import com.example.movesmart.shared.SensorRepository
@@ -22,7 +30,6 @@ import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.After
@@ -45,6 +52,9 @@ class WorkoutRoomUiTest {
     private lateinit var repository: RoomWorkoutRepository
     private lateinit var backDispatcher: OnBackPressedDispatcher
     @Before fun setUp() {
+        androidx.work.testing.WorkManagerTestInitHelper.initializeTestWorkManager(
+            ApplicationProvider.getApplicationContext(), androidx.work.Configuration.Builder()
+                .setExecutor(androidx.work.testing.SynchronousExecutor()).build())
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), MoveSmartDatabase::class.java).build()
         repository = RoomWorkoutRepository(database)
     }
@@ -173,6 +183,74 @@ class WorkoutRoomUiTest {
         assertEquals(DataSource.DEMO, saved.source)
         assertNotNull(saved.startedAt)
         assertEquals(1, saved.minutes)
+    }
+
+    @Test fun statisticsPeriodsUseSavedRecordsAndExcludeOtherUsers() {
+        val today = LocalDate.now()
+        runBlocking {
+            repository.upsert(WorkoutRecord(0, "local-demo", "Today", 25, today, null, DataSource.LIVE)).getOrThrow()
+            repository.upsert(WorkoutRecord(0, "local-demo", "Last month", 40,
+                today.withDayOfMonth(1).minusDays(1), null, DataSource.LIVE)).getOrThrow()
+            repository.upsert(WorkoutRecord(0, "another-user", "Private workout", 99, today, null, DataSource.LIVE)).getOrThrow()
+        }
+        start()
+        statistics()
+        waitForText("Your week in motion")
+        tap("Day")
+        compose.onNodeWithText("Your day in motion").assertExists()
+        compose.onNodeWithText("1 sessions · 1 of 1 active days").assertExists()
+        compose.onNodeWithText("25").assertExists()
+        compose.onNodeWithText("99").assertDoesNotExist()
+        tap("Month")
+        compose.onNodeWithText("Your month in motion").assertExists()
+        tap("Previous")
+        compose.onNodeWithText("40").assertExists()
+        compose.onNodeWithText("99").assertDoesNotExist()
+    }
+
+    @Test fun accountChangeClearsOldNavigationAndUsesNewUidForStatisticsAndReminders() {
+        val accounts = MutableStateFlow<UserAccount?>(UserAccount("firebase-a", "Alice", "a@example.com"))
+        val auth = object : AuthRepository {
+            override val currentUser = accounts
+            override suspend fun signIn(email: String, password: String) = Result.failure<UserAccount>(UnsupportedOperationException())
+            override suspend fun signUp(displayName: String, email: String, password: String) = Result.failure<UserAccount>(UnsupportedOperationException())
+            override suspend fun signInWithGoogle(idToken: String) = Result.failure<UserAccount>(UnsupportedOperationException())
+            override suspend fun signOut(): Result<Unit> { accounts.value = null; return Result.success(Unit) }
+        }
+        val google = object : GoogleLoginProvider {
+            override suspend fun getIdToken(activity: Activity) = Result.failure<String>(UnsupportedOperationException())
+            override suspend fun clear() = Result.success(Unit)
+        }
+        val preferences = object : PreferencesRepository {
+            override fun observe(userId: String) = flowOf(UserPreferences(userId, "Stay active", Intensity.MEDIUM, 150, emptyList(), Environment.ANY))
+            override suspend fun save(preferences: UserPreferences) = Result.success(Unit)
+        }
+        runBlocking {
+            repository.upsert(WorkoutRecord(0, "firebase-a", "A walk", 25, LocalDate.now(), null, DataSource.LIVE)).getOrThrow()
+            repository.upsert(WorkoutRecord(0, "firebase-b", "B walk", 40, LocalDate.now(), null, DataSource.LIVE)).getOrThrow()
+        }
+        compose.setContent {
+            val authVm = remember { AuthViewModel(auth, google) }
+            val preferencesVm = remember { PreferencesViewModel(auth, preferences) }
+            MoveSmartTheme { MoveSmartApp(workoutRepository = repository,
+                authViewModelOverride = authVm, preferencesViewModelOverride = preferencesVm) }
+        }
+        waitForText("Hi, Alice")
+        statistics()
+        waitForText("Your week in motion")
+        compose.onNodeWithContentDescription("Weekly goal: 25 of 150 minutes").assertExists()
+        compose.runOnIdle { accounts.value = UserAccount("firebase-b", "Bob", "b@example.com") }
+        waitForText("Hi, Bob")
+        compose.onNodeWithText("Your week in motion").assertDoesNotExist()
+        statistics()
+        waitForText("Your week in motion")
+        compose.onNodeWithContentDescription("Weekly goal: 40 of 150 minutes").assertExists()
+        compose.onNodeWithContentDescription("Weekly goal: 25 of 150 minutes").assertDoesNotExist()
+        val reminders = com.example.movesmart.reminder.ReminderService.get(ApplicationProvider.getApplicationContext())
+        compose.waitUntil(10_000) { reminders.store.activeUser == "firebase-b" }
+        compose.runOnIdle { accounts.value = null }
+        waitForText("Explore demo")
+        compose.waitUntil(10_000) { reminders.store.activeUser == null }
     }
 
     @Test fun failedSaveKeepsEditorInputAndShowsAnError() {

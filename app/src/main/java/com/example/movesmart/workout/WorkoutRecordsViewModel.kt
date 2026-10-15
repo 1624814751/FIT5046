@@ -27,6 +27,8 @@ class WorkoutRecordsViewModel(private val repository: WorkoutRepository, val use
         retry()
     }
 
+    fun stopObserving() { observation?.cancel(); mutableState.value = WorkoutRecordsState() }
+
     fun retry() {
         observation?.cancel()
         mutableState.value = WorkoutRecordsState()

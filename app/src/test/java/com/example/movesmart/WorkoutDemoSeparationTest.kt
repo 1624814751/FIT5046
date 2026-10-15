@@ -49,6 +49,9 @@ class WorkoutDemoSeparationTest {
     }
 
     @Before fun setUp() {
+        androidx.work.testing.WorkManagerTestInitHelper.initializeTestWorkManager(
+            ApplicationProvider.getApplicationContext(), androidx.work.Configuration.Builder()
+                .setExecutor(androidx.work.testing.SynchronousExecutor()).build())
         database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), MoveSmartDatabase::class.java).build()
         repository = RoomWorkoutRepository(database)
         runBlocking {
@@ -84,7 +87,9 @@ class WorkoutDemoSeparationTest {
             }
             ViewModelProvider(owner, factory)[AuthViewModel::class.java]
             ViewModelProvider(owner, factory)[PreferencesViewModel::class.java]
-            ViewModelProvider(owner, factory)[WorkoutViewModel::class.java]
+            listOf("local-demo", "firebase-user", "signed-out").forEach { userId ->
+                ViewModelProvider(owner, factory)["demo-plan:$userId", WorkoutViewModel::class.java]
+            }
         }
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
@@ -113,16 +118,16 @@ class WorkoutDemoSeparationTest {
     @Test fun restoredFirebaseSessionCannotViewOrWriteDemoHistory() {
         start(signedIn = true)
         history()
-        compose.onNodeWithText("Workout demo only").assertExists()
         compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
-        compose.onNodeWithText("Add workout").assertDoesNotExist()
+        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
+        compose.onNodeWithText("Add workout").assertExists()
         compose.onNode(hasText("Statistics") and isSelectable()).performClick()
-        compose.onNodeWithText("Workout demo only").assertExists()
-        compose.onNodeWithText("Your week in motion").assertDoesNotExist()
+        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
+        compose.onNodeWithText("Your week in motion").assertExists()
         compose.onNode(hasText("Home") and isSelectable()).performClick()
         compose.onNodeWithContentDescription("Search").performClick()
-        compose.onNodeWithText("Workout demo only").assertExists()
-        compose.onNodeWithText("My history").assertDoesNotExist()
+        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
+        compose.onNodeWithText("My history").assertExists()
         assertDemoUnchanged()
     }
 
@@ -133,7 +138,7 @@ class WorkoutDemoSeparationTest {
         compose.onNodeWithText("Add workout").performClick()
         compose.onNodeWithText("Duration (minutes)").performTextReplacement("47")
         compose.runOnIdle { auth.currentUser.value = UserAccount("firebase-user", "Account", "account@example.com") }
-        compose.onNodeWithText("Workout demo only").assertExists()
+        compose.onNodeWithText("Existing demo walk").assertDoesNotExist()
         compose.onNodeWithText("Save workout").assertDoesNotExist()
         compose.onNodeWithText("Duration (minutes)").assertDoesNotExist()
         assertDemoUnchanged()
@@ -141,10 +146,9 @@ class WorkoutDemoSeparationTest {
 
     @Test fun signedInSampleWorkoutCannotSaveAndLogoutRestoresExplicitDemoAccess() {
         start(signedIn = true)
-        compose.onNodeWithText("Find an activity").performScrollTo().performClick()
-        compose.onNodeWithText("See recommendation").performScrollTo().performClick()
-        compose.onNodeWithText("Start activity").performScrollTo().performClick()
-        compose.onNodeWithText("Workout demo only").assertExists()
+        compose.onNodeWithContentDescription("Search").performClick()
+        compose.onAllNodesWithText("Start sample workout")[0].performScrollTo().performClick()
+        compose.onNodeWithText("Live tracking is not connected yet").assertExists()
         compose.onNodeWithText("Finish workout").assertDoesNotExist()
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNode(hasText("Profile") and isSelectable()).performClick()
@@ -157,7 +161,6 @@ class WorkoutDemoSeparationTest {
         }
         history()
         assertDemoHistoryVisible()
-        compose.onNodeWithText("Shared workout demo · Not personal workout history").assertExists()
         assertDemoUnchanged()
     }
 }

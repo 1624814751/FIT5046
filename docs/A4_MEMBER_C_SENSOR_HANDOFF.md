@@ -170,3 +170,11 @@ The first offline lint attempt stopped before analysis because `androidx.concurr
 - `54c9d0a` — Live navigation and measured Room record integration
 
 The branch also contains the earlier Member C Room/CRUD work and the merge from current `main` (`6eee53e`) used for compatibility verification.
+
+## 9. Integration with reviewed main — 15 October 2026
+
+Merged school main `577780f` into the Member C branch without rewriting its history. Resolved navigation and Room UI test conflicts by preserving D's Firebase UID scope, real planning, Google login fix, reminders and period statistics, while using C's state-driven CSV Live screen in explicit demo mode. Passed the sensor repository through the session boundary and retained both sets of regression tests.
+
+Validation of the merged result: all 229 JVM tests passed (zero failures/errors/skips); debug and Android test APK builds passed; lint had zero errors, 25 warnings and 2 hints. On Pixel 9 (2), API 37, `SensorMergeIntegrationTest.demoPlaybackPauseFinishHistoryAndStatistics` passed against the actual CSV asset and a separate test Room database. It verifies demo navigation, dataset disclosure, pause/resume UI, one saved DEMO record with start time and measured duration, History navigation, Statistics totals and absence of records for another account. Continuous playback requires manual Compose test-clock advancement; initial test-harness synchronization attempts were corrected before the passing run.
+
+This test uses an injected signed-out auth fixture; it does not establish real Firebase switching, physical phone sensors, timed notification delivery, or every movement-band prompt on device. Signed-in users retain manual History entry and the existing live-tracking-pending message. UCI playback remains explicit demo data and is not presented as the phone user's own sensor measurement.

@@ -74,6 +74,14 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
             (error as? WeatherError)?.retryable ?: true)
     }
 
+    fun stopObserving() {
+        queryVersion++
+        loadJob?.cancel()
+        observeJob?.cancel()
+        query = null
+        stateFlow.value = UiState.Idle
+    }
+
     fun retryWeather() {
         val value = query ?: return
         loadWeather(value)

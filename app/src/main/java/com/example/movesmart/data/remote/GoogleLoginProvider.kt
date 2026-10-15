@@ -8,7 +8,7 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.CancellationException
 
@@ -24,10 +24,8 @@ class GoogleCredentialLoginProvider(context: Context) : GoogleLoginProvider {
     override suspend fun getIdToken(activity: Activity): Result<String> {
         return try {
             val clientId = findClientId(activity)
-            val option = GetGoogleIdOption.Builder()
-                .setFilterByAuthorizedAccounts(false)
-                .setServerClientId(clientId)
-                .setAutoSelectEnabled(false)
+            // This request comes from an explicit Google sign-in button.
+            val option = GetSignInWithGoogleOption.Builder(clientId)
                 .build()
             val request = GetCredentialRequest.Builder()
                 .addCredentialOption(option)
@@ -47,7 +45,7 @@ class GoogleCredentialLoginProvider(context: Context) : GoogleLoginProvider {
         } catch (error: GetCredentialCancellationException) {
             Result.failure(GoogleLoginCancelledException())
         } catch (error: NoCredentialException) {
-            Result.failure(IllegalStateException("No Google account is available on this device.", error))
+            Result.failure(IllegalStateException("Google sign-in could not retrieve a credential. Check your connection and Google Play services, then try again.", error))
         } catch (error: Exception) {
             Result.failure(error)
         }
