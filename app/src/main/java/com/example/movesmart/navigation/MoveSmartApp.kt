@@ -155,7 +155,9 @@ private fun SessionApp(
     }
     // Firebase records and explicit demo records keep separate ownership scopes.
     val workouts: WorkoutRecordsViewModel = viewModel(key = "workouts:$workoutUserId",
-        factory = WorkoutRecordsViewModel.factory(repository, workoutUserId))
+        factory = WorkoutRecordsViewModel.factory(repository, workoutUserId) {
+            authViewModel.currentUser.value?.userId ?: if (isDemoMode) workoutUserId else null
+        })
     DisposableEffect(workouts) {
         workouts.retry()
         onDispose { workouts.stopObserving() }
@@ -380,7 +382,9 @@ private fun SessionApp(
                             val saved = StoredWorkoutRecord(if (id == -1) 0 else id, workoutUserId, name, minutes, date,
                                 original?.startedAt, original?.source ?: DataSource.LIVE)
                             workouts.save(saved).onSuccess {
-                                nav.popBackStack(); notify("Workout saved. Your statistics are updated.")
+                                withContext(Dispatchers.Main.immediate) {
+                                    nav.popBackStack(); notify("Workout saved. Your statistics are updated.")
+                                }
                             }.onFailure { saveError = "Could not save workout. Please try again." }
                         }
                     }

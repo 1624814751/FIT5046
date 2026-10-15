@@ -27,7 +27,8 @@ class WorkoutRecordsViewModelTest {
     private val store = ViewModelStore()
     private val row = WorkoutRecord(1, "user-a", "Walk", 30, LocalDate.of(2026, 10, 11), null, DataSource.LIVE)
     private val repository = ControlledRepository()
-    private fun model() = WorkoutRecordsViewModel(repository, "user-a").also { store.put("records", it) }
+    private var currentUid: String? = "user-a"
+    private fun model() = WorkoutRecordsViewModel(repository, "user-a") { currentUid }.also { store.put("records", it) }
     @Before fun setUp() { Dispatchers.setMain(dispatcher) }
     @After fun tearDown() { store.clear(); Dispatchers.resetMain() }
 
@@ -73,6 +74,32 @@ class WorkoutRecordsViewModelTest {
         val model = model()
         assertTrue(model.save(row.copy(userId = "user-b")).isFailure)
         assertEquals(0, repository.writes)
+    }
+
+    @Test fun logoutAndAccountSwitchRejectStaleSaveAndDelete() = runTest(dispatcher) {
+        val model = model()
+        runCurrent()
+        for (uid in listOf(null, "user-b")) {
+            currentUid = uid
+            assertTrue(model.save(row.copy(id = 0)).isFailure)
+            assertTrue(model.delete(row.id).isFailure)
+        }
+        assertEquals(0, repository.writes)
+        assertNull(repository.deletedUser)
+    }
+
+    @Test fun leavingSessionCancelsPendingWriteAndRejectsOldCallbacks() = runTest(dispatcher) {
+        repository.gate = CompletableDeferred()
+        val model = model()
+        val pending = async { model.save(row.copy(id = 0)) }
+        runCurrent()
+        model.stopObserving()
+        runCurrent()
+        assertTrue(pending.isCancelled)
+        assertFalse(model.isSaving.value)
+        assertTrue(model.save(row.copy(id = 0)).isFailure)
+        assertTrue(model.delete(row.id).isFailure)
+        assertTrue(model.state.value.records.isEmpty())
     }
 
     @Test fun overlappingSaveAndDeleteAreRejectedWhileFirstWriteRuns() = runTest(dispatcher) {
