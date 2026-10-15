@@ -93,7 +93,27 @@ class WorkoutDemoSeparationTest {
         }
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
-                MoveSmartTheme { MoveSmartApp(workoutRepository = repository) }
+                MoveSmartTheme {
+                    MoveSmartApp(
+                        workoutRepository = repository,
+                        sensorRepository = object : SensorRepository {
+                            override fun playback(datasetId: String) = flowOf(
+                                MotionContext(
+                                    datasetId = "test-dataset",
+                                    sampleIndex = 0,
+                                    elapsedMilliseconds = 0,
+                                    accelerometer = listOf(0.1, 0.2, 0.9),
+                                    gyroscope = listOf(0.01, 0.02, 0.03),
+                                    accelerometerUnit = "g",
+                                    gyroscopeUnit = "rad/s",
+                                    activityLabel = "WALKING",
+                                    movementBand = MovementBand.MODERATE,
+                                    source = DataSource.DEMO
+                                )
+                            )
+                        }
+                    )
+                }
             }
         }
         if (!signedIn) compose.onNodeWithText("Explore demo").performScrollTo().performClick()
@@ -144,24 +164,31 @@ class WorkoutDemoSeparationTest {
         assertDemoUnchanged()
     }
 
-    @Test fun signedInSampleWorkoutCannotSaveAndLogoutRestoresExplicitDemoAccess() {
+    @Test fun signedInSampleWorkoutSavesExactlyOnceUnderTheFirebaseUid() {
         start(signedIn = true)
         compose.onNodeWithContentDescription("Search").performClick()
         compose.onAllNodesWithText("Start sample workout")[0].performScrollTo().performClick()
-        compose.onNodeWithText("Live tracking is not connected yet").assertExists()
-        compose.onNodeWithText("Finish workout").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Back").performClick()
-        compose.onNode(hasText("Profile") and isSelectable()).performClick()
-        compose.onNodeWithText("Log out").performScrollTo().performClick()
-        compose.onNode(hasText("Log out") and hasAnyAncestor(isDialog())).performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Explore demo").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Explore demo").performScrollTo().performClick()
+        compose.onNodeWithText("Source: UCI HAPT public dataset · Demo playback")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Finish workout").performScrollTo().performClick()
+        compose.onNode(hasText("Save session") and hasAnyAncestor(isDialog())).performClick()
+
         compose.waitUntil(10_000) {
-            compose.onAllNodes(hasText("History") and isSelectable()).fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("Outdoor Walk").fetchSemanticsNodes().isNotEmpty()
         }
-        history()
-        assertDemoHistoryVisible()
-        assertDemoUnchanged()
+        compose.onNodeWithText("Outdoor Walk").assertIsDisplayed()
+
+        runBlocking {
+            val accountRows = repository.observe("firebase-user").first()
+            assertEquals(1, accountRows.size)
+            assertEquals("firebase-user", accountRows.single().userId)
+            assertEquals(DataSource.DEMO, accountRows.single().source)
+            assertEquals(1, accountRows.single().minutes)
+            assertEquals(emptyList<WorkoutRecord>(), repository.observe("signed-out").first())
+
+            val demoRows = repository.observe("local-demo").first()
+            assertEquals(listOf("Existing demo walk"), demoRows.map { it.title })
+        }
     }
 }
 

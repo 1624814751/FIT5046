@@ -6,14 +6,15 @@ import com.example.movesmart.shared.MotionContext
 import com.example.movesmart.shared.MovementBand
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MotionWindowClassifierTest {
     @Test
-    fun reportsUnknownUntilAFullSameLabelWindowThenLow() {
-        val classifier = MotionWindowClassifier(windowSize = 50)
+    fun reportsUnknownOnlyDuringNumericWarmupThenUsesMeasuredValues() {
+        val classifier = MotionWindowClassifier(windowSize = 50, minimumSamples = 5)
 
-        repeat(49) {
+        repeat(4) {
             assertEquals(MovementBand.UNKNOWN, classifier.add(sample(az = 1.0)))
         }
 
@@ -44,13 +45,25 @@ class MotionWindowClassifierTest {
     }
 
     @Test
-    fun resetsTheWindowWhenDatasetActivityLabelChanges() {
-        val classifier = MotionWindowClassifier(windowSize = 50)
-        repeat(49) { classifier.add(sample(az = 1.0, label = "STANDING")) }
+    fun activityLabelChangeDoesNotResetTheMeasuredRollingWindow() {
+        val classifier = MotionWindowClassifier(windowSize = 5, minimumSamples = 2)
+        assertEquals(MovementBand.UNKNOWN, classifier.add(sample(az = 1.0, label = "STANDING")))
+        assertEquals(MovementBand.LOW, classifier.add(sample(az = 1.0, label = "STANDING")))
 
-        assertEquals(MovementBand.UNKNOWN, classifier.add(sample(ax = 1.20, label = "WALKING")))
-        repeat(48) { classifier.add(sample(ax = 1.20, label = "WALKING")) }
-        assertEquals(MovementBand.MODERATE, classifier.add(sample(ax = 1.20, label = "WALKING")))
+        val firstChangedLabel = classifier.add(sample(ax = 1.80, label = "WALKING"))
+        assertTrue(firstChangedLabel != MovementBand.UNKNOWN)
+        assertEquals(MovementBand.HIGH, classifier.add(sample(ax = 1.80, label = "WALKING")))
+    }
+
+    @Test
+    fun activityLabelsNeverOverrideSensorMeasurements() {
+        val lowClassifier = MotionWindowClassifier(windowSize = 2, minimumSamples = 2)
+        lowClassifier.add(sample(az = 1.0, label = "RUNNING"))
+        assertEquals(MovementBand.LOW, lowClassifier.add(sample(az = 1.0, label = "RUNNING")))
+
+        val highClassifier = MotionWindowClassifier(windowSize = 2, minimumSamples = 2)
+        highClassifier.add(sample(ax = 1.80, label = "STANDING"))
+        assertEquals(MovementBand.HIGH, highClassifier.add(sample(ax = 1.80, label = "STANDING")))
     }
 
     @Test

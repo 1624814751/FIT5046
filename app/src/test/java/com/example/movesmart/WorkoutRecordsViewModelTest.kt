@@ -76,6 +76,14 @@ class WorkoutRecordsViewModelTest {
         assertEquals(0, repository.writes)
     }
 
+    @Test fun filtersForeignRowsReturnedByRepository() = runTest(dispatcher) {
+        repository.rows.value = listOf(row, row.copy(id = 2, userId = "user-b"))
+        val model = model()
+        runCurrent()
+
+        assertEquals(listOf(row), model.state.value.records)
+    }
+
     @Test fun logoutAndAccountSwitchRejectStaleSaveAndDelete() = runTest(dispatcher) {
         val model = model()
         runCurrent()

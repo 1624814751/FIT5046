@@ -313,52 +313,42 @@ private fun SessionApp(
                     })
             }
             composable(Routes.LIVE) {
-                if (!isDemoMode) ScreenColumn {
-                    Text("Live tracking is not connected yet")
-                    Text("You can record a completed workout manually in History. Sample sessions are available in Explore demo.")
-                    Button({ navigate(Routes.HISTORY) }) { Text("Open history") }
-                } else {
-                    val liveWorkout: LiveWorkoutViewModel = viewModel(
-                        factory = LiveWorkoutViewModel.factory(
-                            sensors,
-                            SensorDatasets.UCI_HAPT_SUBSET_ID
-                        )
+                val liveWorkout: LiveWorkoutViewModel = viewModel(
+                    factory = LiveWorkoutViewModel.factory(
+                        sensors,
+                        SensorDatasets.UCI_HAPT_SUBSET_ID
                     )
-                    val liveState by liveWorkout.state.collectAsStateWithLifecycle()
-                    var saveError by rememberSaveable { mutableStateOf<String?>(null) }
-                    var finishSubmitted by rememberSaveable { mutableStateOf(false) }
-                    LiveActivityScreen(
-                        activity = state.activeWorkout,
-                        plannedMinutes = state.activePlannedMinutes,
-                        state = liveState,
-                        isSaving = saving || finishSubmitted,
-                        saveError = saveError,
-                        onTogglePause = liveWorkout::togglePause,
-                        onRetryPlayback = liveWorkout::retryPlayback
-                    ) {
-                        if (finishSubmitted || saving) return@LiveActivityScreen
-                        finishSubmitted = true
-                        saveError = null
-                        val summary = liveWorkout.summary()
-                        scope.launch {
-                            if (!isDemoMode || authViewModel.currentUser.value != null) {
+                )
+                val liveState by liveWorkout.state.collectAsStateWithLifecycle()
+                var saveError by rememberSaveable { mutableStateOf<String?>(null) }
+                var finishSubmitted by rememberSaveable { mutableStateOf(false) }
+                LiveActivityScreen(
+                    activity = state.activeWorkout,
+                    plannedMinutes = state.activePlannedMinutes,
+                    state = liveState,
+                    isSaving = saving || finishSubmitted,
+                    saveError = saveError,
+                    onTogglePause = liveWorkout::togglePause,
+                    onRetryPlayback = liveWorkout::retryPlayback
+                ) {
+                    if (finishSubmitted || saving) return@LiveActivityScreen
+                    finishSubmitted = true
+                    saveError = null
+                    val summary = liveWorkout.summary()
+                    scope.launch {
+                        val record = StoredWorkoutRecord(0, workoutUserId, state.activeWorkout,
+                            summary.minutes,
+                            summary.startedAt.atZone(ZoneId.systemDefault()).toLocalDate(),
+                            summary.startedAt,
+                            DataSource.DEMO)
+                        val result = workouts.save(record)
+                        withContext(Dispatchers.Main.immediate) {
+                            result.onSuccess {
+                                nav.navigate(Routes.HISTORY) { popUpTo(Routes.HOME); launchSingleTop = true }
+                                notify("Dataset playback session saved. Your statistics are updated.")
+                            }.onFailure {
                                 finishSubmitted = false
-                                return@launch
-                            }
-                            val record = StoredWorkoutRecord(0, workoutUserId, state.activeWorkout,
-                                summary.minutes,
-                                summary.startedAt.atZone(ZoneId.systemDefault()).toLocalDate(),
-                                summary.startedAt,
-                                DataSource.DEMO)
-                            val result = workouts.save(record)
-                            withContext(Dispatchers.Main.immediate) {
-                                result.onSuccess {
-                                    nav.navigate(Routes.HISTORY) { popUpTo(Routes.HOME); launchSingleTop = true }
-                                    notify("Measured demo session saved. Your statistics are updated.")
-                                }.onFailure {
-                                    finishSubmitted = false
-                                    saveError = "Could not save workout. Please try again."
-                                }
+                                saveError = "Could not save workout. Please try again."
                             }
                         }
                     }
