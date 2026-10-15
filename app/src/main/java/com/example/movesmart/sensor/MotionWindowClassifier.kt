@@ -9,16 +9,22 @@ import kotlin.math.sqrt
  * Transparent demonstration rule over one-second UCI sensor windows.
  * It is not a trained activity-recognition or medical model.
  */
-class MotionWindowClassifier(private val windowSize: Int = DEFAULT_WINDOW_SIZE) {
+class MotionWindowClassifier(
+    private val windowSize: Int = DEFAULT_WINDOW_SIZE,
+    private val minimumSamples: Int = minOf(DEFAULT_MINIMUM_SAMPLES, windowSize)
+) {
     init {
         require(windowSize > 0) { "Window size must be positive." }
+        require(minimumSamples in 1..windowSize) {
+            "Minimum samples must be between one and the window size."
+        }
     }
 
     var currentBand: MovementBand = MovementBand.UNKNOWN
         private set
 
-    private var currentLabel: String? = null
-    private var sampleCount = 0
+    private val accelerationDeviations = ArrayDeque<Double>()
+    private val gyroscopeMagnitudes = ArrayDeque<Double>()
     private var accelerationDeviationSum = 0.0
     private var gyroscopeMagnitudeSum = 0.0
 
@@ -26,49 +32,28 @@ class MotionWindowClassifier(private val windowSize: Int = DEFAULT_WINDOW_SIZE) 
         requireAxes(context.accelerometer, "Accelerometer")
         requireAxes(context.gyroscope, "Gyroscope")
 
-        if (context.activityLabel != currentLabel) {
-            resetForLabel(context.activityLabel)
+        val accelerationDeviation = abs(magnitude(context.accelerometer) - EARTH_GRAVITY_G)
+        val gyroscopeMagnitude = magnitude(context.gyroscope)
+        accelerationDeviations.addLast(accelerationDeviation)
+        gyroscopeMagnitudes.addLast(gyroscopeMagnitude)
+        accelerationDeviationSum += accelerationDeviation
+        gyroscopeMagnitudeSum += gyroscopeMagnitude
+
+        if (accelerationDeviations.size > windowSize) {
+            accelerationDeviationSum -= accelerationDeviations.removeFirst()
+            gyroscopeMagnitudeSum -= gyroscopeMagnitudes.removeFirst()
         }
 
-        accelerationDeviationSum += abs(magnitude(context.accelerometer) - EARTH_GRAVITY_G)
-        gyroscopeMagnitudeSum += magnitude(context.gyroscope)
-        sampleCount += 1
-
-        if (sampleCount == windowSize) {
-            currentBand = classify(
-                meanAccelerationDeviation = accelerationDeviationSum / windowSize,
-                meanGyroscopeMagnitude = gyroscopeMagnitudeSum / windowSize
+        currentBand = if (accelerationDeviations.size < minimumSamples) {
+            MovementBand.UNKNOWN
+        } else {
+            classify(
+                meanAccelerationDeviation = accelerationDeviationSum / accelerationDeviations.size,
+                meanGyroscopeMagnitude = gyroscopeMagnitudeSum / gyroscopeMagnitudes.size
             )
-            sampleCount = 0
-            accelerationDeviationSum = 0.0
-            gyroscopeMagnitudeSum = 0.0
         }
 
         return currentBand
-    }
-
-    private fun resetForLabel(label: String?) {
-        currentLabel = label
-        currentBand = provisionalBand(label)
-        sampleCount = 0
-        accelerationDeviationSum = 0.0
-        gyroscopeMagnitudeSum = 0.0
-    }
-
-    /**
-     * The public dataset already provides an activity label for every sample.
-     * Use it only as a short warm-up hint; the measured sensor window replaces
-     * this value as soon as enough samples are available.
-     */
-    private fun provisionalBand(label: String?): MovementBand = when {
-        label == null -> MovementBand.UNKNOWN
-        label.uppercase().contains("RUNNING") ||
-            label.uppercase().contains("JOGGING") -> MovementBand.HIGH
-        label.uppercase().contains("WALKING") -> MovementBand.MODERATE
-        label.uppercase().contains("STANDING") ||
-            label.uppercase().contains("SITTING") ||
-            label.uppercase().contains("LAYING") -> MovementBand.LOW
-        else -> MovementBand.UNKNOWN
     }
 
     private fun classify(
@@ -98,6 +83,7 @@ class MotionWindowClassifier(private val windowSize: Int = DEFAULT_WINDOW_SIZE) 
         const val HIGH_GYROSCOPE_RAD_S = 1.50
 
         private const val AXIS_COUNT = 3
+        private const val DEFAULT_MINIMUM_SAMPLES = 5
         private const val EARTH_GRAVITY_G = 1.0
         private const val EPSILON = 1e-9
     }

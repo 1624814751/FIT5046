@@ -66,6 +66,8 @@ class CsvSensorRepositoryTest {
 
         val samples = repository.playback(SensorDatasets.UCI_HAPT_SUBSET_ID).take(150).toList()
 
+        assertEquals(4, samples.count { it.movementBand == MovementBand.UNKNOWN })
+        assertTrue(samples.drop(4).none { it.movementBand == MovementBand.UNKNOWN })
         assertEquals(MovementBand.LOW, samples[49].movementBand)
         assertEquals(MovementBand.MODERATE, samples[99].movementBand)
         assertEquals(MovementBand.HIGH, samples[149].movementBand)
