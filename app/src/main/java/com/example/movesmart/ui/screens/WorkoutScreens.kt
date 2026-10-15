@@ -16,45 +16,140 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.movesmart.model.WorkoutRecord
-import com.example.movesmart.model.sampleSessionMinutes
+import com.example.movesmart.sensor.LiveWorkoutState
 import com.example.movesmart.ui.components.*
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import androidx.compose.ui.platform.LocalConfiguration
+import kotlin.math.ceil
 
 // Member C screens extracted from MainActivity and connected through callbacks.
 @Composable
-fun LiveActivityScreen(activity: String, intensity: String, plannedMinutes: Int, isSaving: Boolean = false, errorMessage: String? = null, onFinish: () -> Unit) {
-    val sessionMinutes = sampleSessionMinutes(activity, plannedMinutes)
-    var paused by rememberSaveable { mutableStateOf(false) }
+fun LiveActivityScreen(
+    activity: String,
+    plannedMinutes: Int,
+    state: LiveWorkoutState,
+    isSaving: Boolean = false,
+    saveError: String? = null,
+    onTogglePause: () -> Unit,
+    onRetryPlayback: () -> Unit,
+    onFinish: () -> Unit
+) {
     var confirmFinish by rememberSaveable { mutableStateOf(false) }
+    val measuredMinutes = ceil(state.elapsedMilliseconds / 60_000.0)
+        .toInt()
+        .coerceIn(1, 1_440)
+    val progress = if (plannedMinutes <= 0) {
+        0f
+    } else {
+        (state.elapsedMilliseconds / (plannedMinutes * 60_000f)).coerceIn(0f, 1f)
+    }
+
     ScreenColumn {
-        SectionHeading(activity, "$intensity intensity · Sample session")
+        SectionHeading(activity, "Live sensor playback · $plannedMinutes min plan")
         InfoCard(highlighted = true) {
-            Text("$sessionMinutes:00", fontSize = 56.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
-            Text(if (paused) "Paused · Demo timer" else "Elapsed time · Demo timer")
-            LinearProgressIndicator(progress = { sessionMinutes.toFloat() / plannedMinutes }, modifier = Modifier.fillMaxWidth())
+            Text(
+                formatElapsed(state.elapsedMilliseconds),
+                fontSize = 56.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(if (state.paused) "Paused · Active time" else "Elapsed active time")
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         }
-        InfoCard {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Outlined.FavoriteBorder, contentDescription = null)
-                Column {
-                    Text("112 bpm", style = MaterialTheme.typography.titleLarge)
-                    Text("Sample heart rate · No sensor connected", style = MaterialTheme.typography.bodySmall)
+
+        when {
+            state.playbackError != null -> InfoCard {
+                Text("Sensor playback unavailable", style = MaterialTheme.typography.titleMedium)
+                Text(state.playbackError, color = MaterialTheme.colorScheme.error)
+                OutlinedButton(onRetryPlayback, modifier = Modifier.fillMaxWidth()) {
+                    Text("Retry sensor playback")
                 }
             }
+            state.loading -> InfoCard {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator()
+                    Text("Loading UCI HAPT sensor playback…")
+                }
+            }
+            state.latestMotion != null -> SensorReadingCard(state.latestMotion)
+            else -> InfoCard { Text("Waiting for the first sensor sample…") }
         }
-        Text("Listen to your body. Pause whenever you need a break.")
-        OutlinedButton({ paused = !paused }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(if (paused) "Resume workout" else "Pause workout") }
-        errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        PrimaryButton(if (isSaving) "Saving…" else "Finish workout", { confirmFinish = true }, enabled = !isSaving)
+
+        state.safetyPrompt?.let { prompt ->
+            InfoCard {
+                Text("Movement check", style = MaterialTheme.typography.titleMedium)
+                Text(prompt)
+                Text(
+                    "This is a general activity prompt, not medical advice.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        OutlinedButton(
+            onTogglePause,
+            enabled = state.playbackError == null,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+        ) {
+            Text(if (state.paused) "Resume workout" else "Pause workout")
+        }
+        saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        PrimaryButton(
+            if (isSaving) "Saving…" else "Finish workout",
+            { confirmFinish = true },
+            enabled = !isSaving
+        )
     }
-    if (confirmFinish) AlertDialog(onDismissRequest = { confirmFinish = false }, title = { Text("Save this session?") },
-        text = { Text("Add this $sessionMinutes-minute sample session to History and Statistics.") },
-        confirmButton = { TextButton({ confirmFinish = false; onFinish() }) { Text("Save session") } },
-        dismissButton = { TextButton({ confirmFinish = false }) { Text("Keep moving") } })
+
+    if (confirmFinish) {
+        AlertDialog(
+            onDismissRequest = { confirmFinish = false },
+            title = { Text("Save this session?") },
+            text = {
+                Text("Add this $measuredMinutes-minute measured session to History and Statistics.")
+            },
+            confirmButton = {
+                TextButton({ confirmFinish = false; onFinish() }) { Text("Save session") }
+            },
+            dismissButton = {
+                TextButton({ confirmFinish = false }) { Text("Keep moving") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SensorReadingCard(motion: com.example.movesmart.shared.MotionContext) {
+    InfoCard {
+        Text("Dataset activity: ${motion.activityLabel}", style = MaterialTheme.typography.titleMedium)
+        Text("Movement: ${motion.movementBand.name}")
+        Text(
+            "Accelerometer (${motion.accelerometerUnit}): ${motion.accelerometer.formatAxes()}"
+        )
+        Text(
+            "Gyroscope (${motion.gyroscopeUnit}): ${motion.gyroscope.formatAxes()}"
+        )
+        Text(
+            "Source: UCI HAPT public dataset · Demo playback",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+private fun List<Double>.formatAxes(): String = joinToString(", ") { value ->
+    String.format(Locale.US, "%.3f", value)
+}
+
+private fun formatElapsed(elapsedMilliseconds: Long): String {
+    val totalSeconds = elapsedMilliseconds.coerceAtLeast(0) / 1_000
+    return String.format(Locale.US, "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
 }
 
 @Composable

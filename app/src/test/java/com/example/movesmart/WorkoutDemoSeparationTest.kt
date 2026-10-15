@@ -156,6 +156,9 @@ class WorkoutDemoSeparationTest {
         compose.onNode(hasText("Log out") and hasAnyAncestor(isDialog())).performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Explore demo").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Explore demo").performScrollTo().performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(hasText("History") and isSelectable()).fetchSemanticsNodes().isNotEmpty()
+        }
         history()
         assertDemoHistoryVisible()
         assertDemoUnchanged()

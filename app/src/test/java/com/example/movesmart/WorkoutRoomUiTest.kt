@@ -21,6 +21,9 @@ import com.example.movesmart.navigation.MoveSmartApp
 import com.example.movesmart.shared.WorkoutRepository
 import com.example.movesmart.shared.DataSource
 import com.example.movesmart.shared.WorkoutRecord
+import com.example.movesmart.shared.MotionContext
+import com.example.movesmart.shared.MovementBand
+import com.example.movesmart.shared.SensorRepository
 import com.example.movesmart.ui.screens.WorkoutEditorScreen
 import com.example.movesmart.ui.theme.MoveSmartTheme
 import java.time.LocalDate
@@ -56,10 +59,18 @@ class WorkoutRoomUiTest {
         repository = RoomWorkoutRepository(database)
     }
     @After fun tearDown() { database.close() }
-    private fun start(repository: WorkoutRepository = this.repository) {
+    private fun start(
+        repository: WorkoutRepository = this.repository,
+        sensorRepository: SensorRepository? = null
+    ) {
         compose.setContent {
             backDispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
-            MoveSmartTheme { MoveSmartApp(workoutRepository = repository) }
+            MoveSmartTheme {
+                MoveSmartApp(
+                    workoutRepository = repository,
+                    sensorRepository = sensorRepository
+                )
+            }
         }
         compose.onNode(hasText("Explore demo") and hasClickAction()).performScrollTo().performClick()
     }
@@ -135,6 +146,43 @@ class WorkoutRoomUiTest {
         assertTrue(runBlocking { repository.observe("local-demo").firstRows() }.isEmpty())
         statistics()
         compose.onNodeWithContentDescription("Weekly goal: 0 of 150 minutes").assertExists()
+    }
+
+    @Test fun liveSensorPlaybackSavesOneMeasuredDemoRecord() {
+        val sensorRepository = object : SensorRepository {
+            override fun playback(datasetId: String): Flow<MotionContext> = flowOf(
+                MotionContext(
+                    datasetId = datasetId,
+                    sampleIndex = 50,
+                    elapsedMilliseconds = 1_000,
+                    accelerometer = listOf(0.1, 0.2, 0.9),
+                    gyroscope = listOf(0.01, 0.02, 0.03),
+                    accelerometerUnit = "g",
+                    gyroscopeUnit = "rad/s",
+                    activityLabel = "WALKING",
+                    movementBand = MovementBand.MODERATE,
+                    source = DataSource.DEMO
+                )
+            )
+        }
+        start(sensorRepository = sensorRepository)
+
+        scrollTap("Find an activity")
+        scrollTap("See recommendation")
+        scrollTap("Start activity")
+        waitForText("Dataset activity: WALKING")
+        compose.onNodeWithText("112 bpm").assertDoesNotExist()
+
+        scrollTap("Finish workout")
+        compose.onNode(hasText("Save session") and hasAnyAncestor(isDialog())).performClick()
+        compose.waitUntil(10_000) {
+            runBlocking { repository.observe("local-demo").firstRows().size == 1 }
+        }
+
+        val saved = runBlocking { repository.observe("local-demo").firstRows().single() }
+        assertEquals(DataSource.DEMO, saved.source)
+        assertNotNull(saved.startedAt)
+        assertEquals(1, saved.minutes)
     }
 
     @Test fun statisticsPeriodsUseSavedRecordsAndExcludeOtherUsers() {
