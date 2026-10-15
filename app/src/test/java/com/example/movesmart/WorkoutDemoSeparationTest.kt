@@ -65,7 +65,7 @@ class WorkoutDemoSeparationTest {
         database.close()
     }
 
-    private fun start(signedIn: Boolean) {
+    private fun start(signedIn: Boolean, reminderRequest: Int = 0) {
         if (signedIn) auth.currentUser.value = UserAccount("firebase-user", "Account", "account@example.com")
         val preferences = object : PreferencesRepository {
             override fun observe(userId: String) = flowOf<UserPreferences?>(null)
@@ -87,13 +87,13 @@ class WorkoutDemoSeparationTest {
             }
             ViewModelProvider(owner, factory)[AuthViewModel::class.java]
             ViewModelProvider(owner, factory)[PreferencesViewModel::class.java]
-            listOf("local-demo", "firebase-user", "signed-out").forEach { userId ->
+            listOf("local-demo", "firebase-user", "signed-out", "second-user").forEach { userId ->
                 ViewModelProvider(owner, factory)["demo-plan:$userId", WorkoutViewModel::class.java]
             }
         }
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
-                MoveSmartTheme { MoveSmartApp(workoutRepository = repository) }
+                MoveSmartTheme { MoveSmartApp(openReminderRequest = reminderRequest, workoutRepository = repository) }
             }
         }
         if (!signedIn) compose.onNodeWithText("Explore demo").performScrollTo().performClick()
@@ -113,6 +113,18 @@ class WorkoutDemoSeparationTest {
         assertEquals(listOf("Existing demo walk"), rows.map { it.title })
         assertEquals(listOf(30), rows.map { it.minutes })
         assertEquals(emptyList<WorkoutRecord>(), repository.observe("firebase-user").first())
+    }
+
+    @Test fun handledNotificationDoesNotReplayAfterAccountChange() {
+        start(signedIn = true, reminderRequest = 1)
+        compose.onNodeWithText("Saved on this device. Android may delay reminders to save battery.").assertExists()
+        compose.onNode(hasText("Home") and isSelectable()).performClick()
+        compose.runOnIdle {
+            auth.currentUser.value = UserAccount("second-user", "Second", "second@example.com")
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Saved on this device. Android may delay reminders to save battery.").assertDoesNotExist()
+        compose.onNode(hasText("Home") and isSelectable()).assertIsSelected()
     }
 
     @Test fun restoredFirebaseSessionCannotViewOrWriteDemoHistory() {

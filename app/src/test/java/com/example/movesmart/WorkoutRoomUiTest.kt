@@ -61,12 +61,14 @@ class WorkoutRoomUiTest {
     @After fun tearDown() { database.close() }
     private fun start(
         repository: WorkoutRepository = this.repository,
-        sensorRepository: SensorRepository? = null
+        sensorRepository: SensorRepository? = null,
+        reminderRequest: () -> Int = { 0 }
     ) {
         compose.setContent {
             backDispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
             MoveSmartTheme {
                 MoveSmartApp(
+                    openReminderRequest = reminderRequest(),
                     workoutRepository = repository,
                     sensorRepository = sensorRepository
                 )
@@ -148,6 +150,24 @@ class WorkoutRoomUiTest {
         compose.onNodeWithContentDescription("Weekly goal: 0 of 150 minutes").assertExists()
     }
 
+    @Test fun notificationWaitsForWorkoutExitAndDiscardDoesNotSave() {
+        val request = androidx.compose.runtime.mutableIntStateOf(0)
+        val sensors = object : SensorRepository {
+            override fun playback(datasetId: String): Flow<MotionContext> = kotlinx.coroutines.flow.emptyFlow()
+        }
+        start(sensorRepository = sensors, reminderRequest = { request.intValue })
+        scrollTap("Find an activity")
+        scrollTap("See recommendation")
+        scrollTap("Start activity")
+        compose.runOnIdle { request.intValue = 1 }
+        compose.onNodeWithText("Live workout").assertExists()
+        compose.onNodeWithText("Saved on this device. Android may delay reminders to save battery.").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Back").performClick()
+        tap("Leave without saving")
+        waitForText("Saved on this device. Android may delay reminders to save battery.")
+        assertTrue(runBlocking { repository.observe("local-demo").firstRows() }.isEmpty())
+    }
+
     @Test fun liveSensorPlaybackSavesOneMeasuredDemoRecord() {
         val sensorRepository = object : SensorRepository {
             override fun playback(datasetId: String): Flow<MotionContext> = flowOf(
@@ -172,6 +192,13 @@ class WorkoutRoomUiTest {
         scrollTap("Start activity")
         waitForText("Dataset activity: WALKING")
         compose.onNodeWithText("112 bpm").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithText("Leave this workout?").assertExists()
+        tap("Stay in workout")
+        compose.onNodeWithText("Dataset activity: WALKING").assertExists()
+        compose.runOnIdle { backDispatcher.onBackPressed() }
+        compose.onNodeWithText("Leave this workout?").assertExists()
+        tap("Stay in workout")
 
         scrollTap("Finish workout")
         compose.onNode(hasText("Save session") and hasAnyAncestor(isDialog())).performClick()

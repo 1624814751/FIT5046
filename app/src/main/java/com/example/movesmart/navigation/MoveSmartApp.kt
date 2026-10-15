@@ -107,9 +107,10 @@ fun MoveSmartApp(
         WeatherWork(androidContext).stopWeatherWork()
     }
     LaunchedEffect(currentUser?.userId) { if (currentUser != null) demo = false }
+    var handledReminderRequest by rememberSaveable { mutableIntStateOf(0) }
     // Discard navigation stacks and remembered drafts as soon as identity changes.
     key(sessionUserId) {
-        SessionApp(openReminderRequest, workoutRepository, sessionUserId ?: "signed-out",
+        SessionApp(openReminderRequest, handledReminderRequest, { handledReminderRequest = it }, workoutRepository, sessionUserId ?: "signed-out",
             currentUser, isDemoMode, { demo = it }, authViewModel, preferencesViewModel, reminderError, sensorRepository)
     }
 }
@@ -118,6 +119,8 @@ fun MoveSmartApp(
 @Composable
 private fun SessionApp(
     openReminderRequest: Int,
+    handledReminderRequest: Int,
+    onReminderRequestHandled: (Int) -> Unit,
     workoutRepository: com.example.movesmart.shared.WorkoutRepository?,
     workoutUserId: String,
     currentUser: UserAccount?,
@@ -170,11 +173,11 @@ private fun SessionApp(
     val reminderUserId = workoutUserId
     val reminderFlow = remember(reminders, reminderUserId) { reminders.store.observe(reminderUserId) }
     val savedReminder by reminderFlow.collectAsState(initial = reminders.store.read(reminderUserId))
-    var handledReminderRequest by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(savedReminder, state) { state.reminder = savedReminder?.toForm() ?: ReminderSettings(enabled = false) }
-    LaunchedEffect(openReminderRequest, auth) {
-        if (!auth && openReminderRequest > handledReminderRequest) {
-            handledReminderRequest = openReminderRequest
+    LaunchedEffect(openReminderRequest, auth, route) {
+        // Keep a notification tap pending while a workout or record edit is open.
+        if (!auth && route != Routes.LIVE && route != Routes.RECORD && openReminderRequest > handledReminderRequest) {
+            onReminderRequestHandled(openReminderRequest)
             nav.navigate(Routes.REMINDERS) { launchSingleTop = true }
         }
     }
@@ -212,6 +215,23 @@ private fun SessionApp(
         state.activeWorkout = title; state.activePlannedMinutes = minutes; state.activeIntensity = intensity
         navigate(Routes.LIVE)
     }
+    var confirmLeaveWorkout by rememberSaveable { mutableStateOf(false) }
+    fun requestBack() {
+        if (route == Routes.LIVE && isDemoMode) confirmLeaveWorkout = true
+        else nav.popBackStack()
+    }
+    if (confirmLeaveWorkout) {
+        AlertDialog(
+            onDismissRequest = { confirmLeaveWorkout = false },
+            title = { Text("Leave this workout?") },
+            text = { Text("This session has not been saved. Stay and use Finish workout to save it to History and Statistics.") },
+            confirmButton = { TextButton({
+                confirmLeaveWorkout = false
+                nav.popBackStack()
+            }, enabled = !saving) { Text("Leave without saving") } },
+            dismissButton = { TextButton({ confirmLeaveWorkout = false }) { Text("Stay in workout") } }
+        )
+    }
     val title = when (route) {
         Routes.LOGIN -> "MoveSmart"
         Routes.SIGN_UP -> "Sign up"
@@ -230,7 +250,7 @@ private fun SessionApp(
     Scaffold(
         topBar = {
             TopAppBar(title = { Text(title) }, navigationIcon = {
-                if (!topLevel && route != Routes.LOGIN) IconButton({ nav.popBackStack() }, enabled = !saving) {
+                if (!topLevel && route != Routes.LOGIN) IconButton({ requestBack() }, enabled = !saving) {
                     Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
                 }
             }, actions = {
@@ -426,6 +446,9 @@ private fun SessionApp(
                     }
                 }, isDemoMode = isDemoMode, authViewModel = authViewModel,
                 preferencesViewModel = preferencesViewModel) }
+        }
+        BackHandler(enabled = route == Routes.LIVE && isDemoMode && !saving && !confirmLeaveWorkout) {
+            requestBack()
         }
         // Keep this inside Scaffold's content, after NavHost's own handler registration.
         BackHandler(enabled = saving) { /* Wait for the pending write rather than popping twice. */ }

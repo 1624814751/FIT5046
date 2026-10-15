@@ -57,3 +57,19 @@ Home/planning/details now use A's weather/recommendation contracts, and daily/we
 - [Android alarm scheduling](https://developer.android.com/develop/background-work/services/alarms)
 - [Notification runtime permission](https://developer.android.com/develop/ui/compose/notifications/notification-permission)
 - Supplied Group 114 three-member responsibilities document and Phase 1 shared contracts.
+
+## Local navigation follow-up — 16 October 2026
+
+The Android Studio `member-d-integration` checkout now includes the fetched school main `3d33297`.
+Notification requests are consumed above the account-scoped navigation tree so a handled tap is not replayed after account switching. A tap during Live workout or a record editor stays pending until that screen is left, preserving the in-progress flow.
+
+The current demo Live route confirms toolbar/system Back before discarding an unsaved session. Stay keeps the session open; Leave does not write a record. This protection must also cover the signed-in timed-workout route when Member C supplies it. Signed-in Live remains pending; this change does not substitute CSV playback for real account workouts.
+
+Regression coverage adds account-change notification handling, deferred notification navigation/discard, and toolbar/system Back followed by successful workout save. The initial two failures exposed handler ordering and a missing second-user test fixture; both were corrected.
+
+Verified on 16 October 2026 at approximately 00:42 Melbourne time after the user ran the build in Terminal: BUILD SUCCESSFUL, all 231 host tests across 27 suites passed (zero failures, errors or skips), both debug and Android test APKs built, lint reported zero errors, 25 warnings and 2 hints. The XML reports were inspected directly. These are host/build results; the physical follow-ups below separately record the revised navigation checks.
+To repeat from the task workspace, run `sh work/run-d-navigation.sh`; this builds both APKs, runs the host tests and lint. Remaining device checks include Live-workout notification deferral, idle/cold-start delivery, reboot restore and real two-account isolation; the awake-device editor flow is verified below. The physical phone's retained Outdoor Walk test record must not be deleted.
+
+Physical-device follow-up at 00:44–00:46: Samsung SM-F971B API 37 showed the exit confirmation for both toolbar and system Back. Stay retained the advancing timer; Leave returned to Activity details. No session save/delete was performed. At this stage notification-tap deferral and account-change non-replay had only host-test evidence; see the subsequent physical notification follow-up below.
+
+Physical notification follow-up at 00:52–00:56 on 16 October: on Samsung SM-F971B API 37, Demo reminder was saved for Friday 00:53 Australia/Sydney. The app displayed the next occurrence and scheduled confirmation. With the device awake and USB charging, an actual Time to move notification (timestamp 00:53) was observed at 00:54 without manually invoking the receiver. Exact delivery latency, idle behavior and battery-saver configuration were not measured. Tapping it while Add workout was open kept the editor visible; Cancel then navigated to Reminder settings. The next occurrence displayed Friday 23 October 00:53. The test reminder was disabled and saved; cancellation text and Profile Off were verified. No workout was saved or deleted. Logout returned to Login. At 00:59, after the user completed real-account login, the physical device showed the personalized Home screen with Home selected, rather than Reminder settings. This Demo-to-real session transition did not visibly replay the previously handled notification; it is not a two-real-account isolation test. Live-workout notification deferral has not yet been manually exercised on the phone.
