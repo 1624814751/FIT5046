@@ -49,10 +49,26 @@ class MotionWindowClassifier(private val windowSize: Int = DEFAULT_WINDOW_SIZE) 
 
     private fun resetForLabel(label: String?) {
         currentLabel = label
-        currentBand = MovementBand.UNKNOWN
+        currentBand = provisionalBand(label)
         sampleCount = 0
         accelerationDeviationSum = 0.0
         gyroscopeMagnitudeSum = 0.0
+    }
+
+    /**
+     * The public dataset already provides an activity label for every sample.
+     * Use it only as a short warm-up hint; the measured sensor window replaces
+     * this value as soon as enough samples are available.
+     */
+    private fun provisionalBand(label: String?): MovementBand = when {
+        label == null -> MovementBand.UNKNOWN
+        label.uppercase().contains("RUNNING") ||
+            label.uppercase().contains("JOGGING") -> MovementBand.HIGH
+        label.uppercase().contains("WALKING") -> MovementBand.MODERATE
+        label.uppercase().contains("STANDING") ||
+            label.uppercase().contains("SITTING") ||
+            label.uppercase().contains("LAYING") -> MovementBand.LOW
+        else -> MovementBand.UNKNOWN
     }
 
     private fun classify(

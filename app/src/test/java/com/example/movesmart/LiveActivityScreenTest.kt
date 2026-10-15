@@ -69,6 +69,7 @@ class LiveActivityScreenTest {
     @Test
     fun playbackErrorExplainsFailureAndOffersRetry() {
         var retries = 0
+        var pauses = 0
         compose.setContent {
             MoveSmartTheme {
                 LiveActivityScreen(
@@ -78,7 +79,7 @@ class LiveActivityScreenTest {
                         loading = false,
                         playbackError = "Sensor CSV could not be read."
                     ),
-                    onTogglePause = {},
+                    onTogglePause = { pauses += 1 },
                     onRetryPlayback = { retries += 1 },
                     onFinish = {}
                 )
@@ -88,6 +89,8 @@ class LiveActivityScreenTest {
         compose.onNodeWithText("Sensor CSV could not be read.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Retry sensor playback").performScrollTo().performClick()
         assertEquals(1, retries)
+        compose.onNodeWithText("Pause workout").performScrollTo().performClick()
+        assertEquals(1, pauses)
         compose.onNodeWithText("112 bpm").assertDoesNotExist()
     }
 
