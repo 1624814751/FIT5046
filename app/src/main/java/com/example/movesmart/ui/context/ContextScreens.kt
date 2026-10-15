@@ -54,6 +54,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.movesmart.shared.*
+import com.example.movesmart.ui.weather.WeatherViewModel
+import com.example.movesmart.ui.recommendation.RecommendationViewModel
+import com.example.movesmart.ui.recommendation.RecommendationSelection
+import java.time.Instant
+import java.time.ZoneOffset
 
 // Member B's screens use the application's shared theme and navigation callbacks.
 private val Ink: Color @Composable get() = MaterialTheme.colorScheme.onSurface
@@ -66,46 +75,54 @@ private val Muted: Color @Composable get() = MaterialTheme.colorScheme.onSurface
 
 @Composable
 fun HomeScreen(workoutViewModel: WorkoutViewModel, displayName: String, goal: String,
-    onFindActivity: () -> Unit, onPreferences: () -> Unit) {
+    onFindActivity: () -> Unit, onPreferences: () -> Unit,
+    memberAContent: (@Composable () -> Unit)? = null) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Hello, $displayName", style = MaterialTheme.typography.bodyMedium, color = Muted)
         Text("You have time.\nLet's make it count.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Ink)
-        ContextRow(workoutViewModel)
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Hero), shape = RoundedCornerShape(24.dp)) {
-            Column(modifier = Modifier.padding(22.dp)) {
-                Text("BEST MATCH RIGHT NOW", color = Lime, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                Text(workoutViewModel.recommendation.title, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(18.dp))
-                Text("Why this matches you", color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(8.dp))
-                Text("${workoutViewModel.weatherSummary}  •  ${workoutViewModel.selectedDuration} available  •  ${workoutViewModel.selectedIntensity} intensity", color = Color.White, style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(16.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("${workoutViewModel.recommendation.minutes} min · ${workoutViewModel.selectedLocation}", color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.weight(1f))
-                    IconButton(onClick = onFindActivity, modifier = Modifier.background(Lime, RoundedCornerShape(20.dp))) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = "Find an activity", tint = Hero)
+        if (memberAContent != null) {
+            Button(onClick = onFindActivity, modifier = Modifier.fillMaxWidth()) { Text("Find an activity") }
+            memberAContent()
+        } else {
+            ContextRow(workoutViewModel)
+            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Hero), shape = RoundedCornerShape(24.dp)) {
+                Column(modifier = Modifier.padding(22.dp)) {
+                    Text("BEST MATCH RIGHT NOW", color = Lime, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(6.dp))
+                    Text(workoutViewModel.recommendation.title, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(18.dp))
+                    Text("Why this matches you", color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text("${workoutViewModel.weatherSummary}  •  ${workoutViewModel.selectedDuration} available  •  ${workoutViewModel.selectedIntensity} intensity", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${workoutViewModel.recommendation.minutes} min · ${workoutViewModel.selectedLocation}", color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = onFindActivity, modifier = Modifier.background(Lime, RoundedCornerShape(20.dp))) {
+                            Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = "Find an activity", tint = Hero)
+                        }
                     }
                 }
             }
         }
-        Button(onClick = onFindActivity, modifier = Modifier.fillMaxWidth()) { Text("Find an activity") }
+        if (memberAContent == null) Button(onClick = onFindActivity, modifier = Modifier.fillMaxWidth()) { Text("Find an activity") }
         SectionTitle("Your preferences", onPreferences)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             PreferenceCard("Intensity", workoutViewModel.selectedIntensity, true, Modifier.weight(1f))
             PreferenceCard("Goal", goal, false, Modifier.weight(1f))
             PreferenceCard("Activity", workoutViewModel.selectedPreference, false, Modifier.weight(1f))
         }
-        SectionTitle("Safety status")
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = androidx.compose.foundation.BorderStroke(1.dp, Line), shape = RoundedCornerShape(20.dp)) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SafetyRow("Sample weather", workoutViewModel.weatherSummary)
-                SafetyRow("Sample activity context", "Low movement · No wearable connected.")
-                Text("Weather and movement values are simulated for this demo.", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+        if (memberAContent == null) {
+            SectionTitle("Safety status")
+            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = androidx.compose.foundation.BorderStroke(1.dp, Line), shape = RoundedCornerShape(20.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SafetyRow("Sample weather", workoutViewModel.weatherSummary)
+                    SafetyRow("Sample activity context", "Low movement · No wearable connected.")
+                    Text("Weather and movement values are simulated for this demo.", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -150,7 +167,8 @@ fun HomeScreen(workoutViewModel: WorkoutViewModel, displayName: String, goal: St
 }
 
 @Composable
-fun ActivityRecommendationScreen(workoutViewModel: WorkoutViewModel, onShowDetails: () -> Unit) {
+fun ActivityRecommendationScreen(workoutViewModel: WorkoutViewModel,
+    memberAContent: (@Composable () -> Unit)? = null, onShowDetails: () -> Unit) {
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
     val datePickerState = rememberDatePickerState(initialSelectedDateMillis = workoutViewModel.selectedDateMillis)
     if (showDatePicker) {
@@ -164,17 +182,135 @@ fun ActivityRecommendationScreen(workoutViewModel: WorkoutViewModel, onShowDetai
         OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) { Text("Date: ${workoutViewModel.formattedDate()}") }
         SelectorMenu("Available time", workoutViewModel.selectedDuration, listOf("15 min", "30 min", "45 min", "60 min"), workoutViewModel::updateDuration)
         SelectorMenu("Intensity", workoutViewModel.selectedIntensity, listOf("Easy", "Medium", "High"), workoutViewModel::updateIntensity)
-        SelectorMenu("Location", workoutViewModel.selectedLocation, listOf("Chadstone", "Home", "Campus"), workoutViewModel::updateLocation)
+        if (memberAContent == null) SelectorMenu("Location", workoutViewModel.selectedLocation, listOf("Chadstone", "Home", "Campus"), workoutViewModel::updateLocation)
         SelectorMenu("Activity preference", workoutViewModel.selectedPreference, listOf("Outdoor", "Indoor", "No preference"), workoutViewModel::updatePreference)
-        Card(colors = CardDefaults.cardColors(containerColor = BrandSoft), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-            Text("Demo context: ${workoutViewModel.weatherSummary}, ${workoutViewModel.selectedLocation}. ${workoutViewModel.activityContext}.", modifier = Modifier.padding(16.dp), color = Ink, style = MaterialTheme.typography.bodyMedium)
+        if (memberAContent != null) memberAContent() else {
+            Card(colors = CardDefaults.cardColors(containerColor = BrandSoft), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                Text("Demo context: ${workoutViewModel.weatherSummary}, ${workoutViewModel.selectedLocation}. ${workoutViewModel.activityContext}.", modifier = Modifier.padding(16.dp), color = Ink, style = MaterialTheme.typography.bodyMedium)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Simulate rainy weather", modifier = Modifier.weight(1f))
+                Switch(checked = workoutViewModel.rainy, onCheckedChange = workoutViewModel::updateRainy,
+                    modifier = Modifier.semantics { contentDescription = "Simulate rainy weather" })
+            }
         }
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Simulate rainy weather", modifier = Modifier.weight(1f))
-            Switch(checked = workoutViewModel.rainy, onCheckedChange = workoutViewModel::updateRainy,
-                modifier = Modifier.semantics { contentDescription = "Simulate rainy weather" })
-        }
+        if (memberAContent != null) Text("The activity details below are a separate sample activity.", color = Muted)
         Button(onClick = onShowDetails, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Brand)) { Text("See recommendation") }
+    }
+}
+
+/** Labels alone are not locations. The caller must supply coordinates from a validated source. */
+internal fun memberAPlan(form: WorkoutViewModel, location: GeoLocation?): PlanningInput? {
+    if (location == null || location.label != form.selectedLocation || location.label.isBlank() ||
+        !location.latitude.isFinite() || location.latitude !in -90.0..90.0 ||
+        !location.longitude.isFinite() || location.longitude !in -180.0..180.0) return null
+    val minutes = form.selectedDuration.removeSuffix(" min").toIntOrNull()?.takeIf { it > 0 } ?: return null
+    val intensity = when (form.selectedIntensity) {
+        "Easy" -> Intensity.LOW
+        "Medium" -> Intensity.MEDIUM
+        "High" -> Intensity.HIGH
+        else -> return null
+    }
+    val environment = when (form.selectedPreference) {
+        "Indoor" -> Environment.INDOOR
+        "Outdoor" -> Environment.OUTDOOR
+        "No preference" -> Environment.ANY
+        else -> return null
+    }
+    return PlanningInput(Instant.ofEpochMilli(form.selectedDateMillis).atZone(ZoneOffset.UTC).toLocalDate(),
+        minutes, intensity, environment, location)
+}
+
+@Composable
+fun MemberAContextRoute(userId: String, plan: PlanningInput?, weather: WeatherViewModel,
+    recommendations: RecommendationViewModel, onSelected: (String) -> Unit = {}) {
+    val weatherState by weather.state.collectAsStateWithLifecycle()
+    val recommendationState by recommendations.state.collectAsStateWithLifecycle()
+    val selection by recommendations.selection.collectAsStateWithLifecycle()
+    val query = plan?.let { WeatherQuery(it.location, it.date) }
+    LaunchedEffect(query) { if (query != null) weather.loadWeather(query) else weather.clearLocation() }
+    // Reading collected values triggers recomposition; guarded access also rejects a
+    // previous account's state before its asynchronous auth collector catches up.
+    val visibleWeather = weatherState.let { weather.stateForQuery(query) }
+    val matchingWeather = (visibleWeather as? UiState.Success)?.data?.takeIf { it.query == query }
+    LaunchedEffect(userId, plan, matchingWeather) { recommendations.syncContext(plan, matchingWeather) }
+    val visibleResult = recommendationState.let { recommendations.stateForContext(userId, plan, matchingWeather) }
+    val visibleSelection = selection.let { if (visibleResult is UiState.Success) recommendations.selectionForUser(userId) else null }
+    MemberAContextContent(plan, visibleWeather, visibleResult, visibleSelection,
+        onWeatherRetry = weather::retryWeather, onRecommendationRetry = recommendations::retry,
+        onGenerate = {
+            if (plan != null) recommendations.generateRecommendation(plan,
+                (weather.state.value as? UiState.Success)?.data?.takeIf { it.query == query })
+        }, onSelect = { if (recommendations.selectRecommendation(it)) onSelected(it) })
+}
+
+@Composable
+fun MemberAContextContent(plan: PlanningInput?, weather: UiState<WeatherContext>,
+    recommendation: UiState<ContextDecision?>, selection: RecommendationSelection?,
+    onWeatherRetry: () -> Unit, onRecommendationRetry: () -> Unit,
+    onGenerate: () -> Unit, onSelect: (String) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = BrandSoft),
+        shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Weather", style = MaterialTheme.typography.titleMedium)
+            if (plan == null) {
+                Text("Weather unavailable: this location has no verified coordinates.")
+            } else when (weather) {
+                UiState.Idle -> Text("Weather is not available yet.")
+                UiState.Loading -> { CircularProgressIndicator(); Text("Loading weather…") }
+                is UiState.Error -> {
+                    Text(weather.message, color = MaterialTheme.colorScheme.error)
+                    if (weather.retryable) TextButton(onWeatherRetry) { Text("Retry weather") }
+                }
+                is UiState.Success -> {
+                    val value = weather.data
+                    Text("${value.temperatureC}°C · ${value.query.location.label}")
+                    Text("Noon forecast · ${value.query.date}")
+                    Text("Rain: ${value.rainProbabilityPercent?.let { "$it%" } ?: "Unavailable"} · " +
+                        "Wind: ${value.windSpeedKmh?.let { "$it km/h" } ?: "Unavailable"}")
+                    Text(when (value.source) {
+                        DataSource.CACHE -> "Saved weather"
+                        DataSource.LIVE -> "Forecast from weather service"
+                        DataSource.DEMO -> "Sample weather"
+                    })
+                    Text("Fetched: ${value.fetchedAt}")
+                    if (value.isStale) Text("Old weather — refresh before going outside.")
+                    TextButton(onWeatherRetry) { Text("Refresh weather") }
+                }
+            }
+        }
+    }
+    Card(colors = CardDefaults.cardColors(containerColor = Hero),
+        shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("YOUR RECOMMENDATION", color = Lime, style = MaterialTheme.typography.labelSmall)
+            when (recommendation) {
+                UiState.Idle -> Text("No recommendation yet. Choose your plan to get started.", color = Color.White)
+                UiState.Loading -> { CircularProgressIndicator(color = Lime); Text("Loading recommendation…", color = Color.White) }
+                is UiState.Error -> {
+                    Text(recommendation.message, color = Color.White)
+                    if (recommendation.retryable) TextButton(onRecommendationRetry) { Text("Retry recommendation", color = Lime) }
+                }
+                is UiState.Success -> {
+                    val decision = recommendation.data
+                    if (decision == null) Text("No saved recommendation was found.", color = Color.White)
+                    else {
+                        val activity = decision.recommendation
+                        Text(activity.activityName, color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                        Text("${activity.minutes} min · ${activity.intensity.name.lowercase()} intensity", color = Color.White)
+                        activity.reasons.forEach { Text(it, color = Color.White) }
+                        decision.safetyPrompt?.let { Text(it, color = Lime) }
+                        if (selection?.recommendationId == activity.id) Text("Selected for this session", color = Lime)
+                        else Button({ onSelect(activity.id) }) { Text("Select recommendation") }
+                    }
+                }
+            }
+            if (plan == null) Text("A location with verified coordinates is needed to generate a recommendation.", color = Color.White)
+            if (plan != null && weather !is UiState.Success && weather != UiState.Loading) {
+                Text("Weather unavailable: recommendations can use your preferences and time without weather. Outdoor conditions are not verified.", color = Color.White)
+            }
+            Button(onGenerate, enabled = plan != null && weather != UiState.Loading && recommendation != UiState.Loading) { Text("Generate recommendation") }
+        }
     }
 }
 

@@ -1,10 +1,12 @@
 package com.example.movesmart.worker
 
 import android.content.Context
+import android.util.Log
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.Operation
 import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -17,6 +19,7 @@ import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
 const val WEATHER_WORK_NAME = "weather-refresh"
+internal const val WEATHER_LOG_TAG = "MoveSmartWeather"
 
 fun weatherQueryData(query: WeatherQuery): Data = workDataOf(
     "label" to query.location.label,
@@ -45,12 +48,23 @@ fun readWeatherQuery(data: Data): WeatherQuery? = try {
     null
 }
 
+// Weather work: Schedule and cancel forecast refreshes
 class WeatherWork(context: Context) {
     private val manager = WorkManager.getInstance(context.applicationContext)
 
-    fun startWeatherWork(query: WeatherQuery) = manager.enqueueUniquePeriodicWork(
-        WEATHER_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, weatherWorkRequest(query)
-    )
+    fun startWeatherWork(query: WeatherQuery): Operation {
+        val request = try {
+            weatherWorkRequest(query)
+        } catch (error: Exception) {
+            Log.w(WEATHER_LOG_TAG, "Scheduling rejected: invalid weather input")
+            throw error
+        }
+        Log.i(WEATHER_LOG_TAG, "Periodic weather scheduling requested; execution is pending")
+        return manager.enqueueUniquePeriodicWork(WEATHER_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
+    }
 
-    fun stopWeatherWork() = manager.cancelUniqueWork(WEATHER_WORK_NAME)
+    fun stopWeatherWork(): Operation {
+        Log.i(WEATHER_LOG_TAG, "Weather work cancellation requested")
+        return manager.cancelUniqueWork(WEATHER_WORK_NAME)
+    }
 }

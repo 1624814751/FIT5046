@@ -16,10 +16,22 @@ import org.junit.Before
 import kotlinx.coroutines.runBlocking
 import com.example.movesmart.reminder.ReminderService
 import java.io.File
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.lifecycle.ViewModelStore
+import com.example.movesmart.data.remote.GoogleLoginProvider
+import com.example.movesmart.shared.*
+import com.example.movesmart.ui.auth.AuthViewModel
+import com.example.movesmart.ui.preferences.PreferencesViewModel
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 
 /** Navigation/state regressions and genuine emulator captures for the A2 report. */
 class PrototypeUiTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = createAndroidComposeRule<PrototypeTestActivity>()
+    private val accountModels = ViewModelStore()
+    @After fun clearAccountModels() { compose.runOnIdle { accountModels.clear() } }
     @Before fun clearPersistedReminders() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         runBlocking { ReminderService.get(context).logout().getOrThrow() }
@@ -27,8 +39,37 @@ class PrototypeUiTest {
     }
     private fun tap(text: String) = compose.onNode(hasText(text) and hasClickAction()).performClick()
     private fun scrollTap(text: String) = compose.onNode(hasText(text) and hasClickAction()).performScrollTo().performClick()
-    private fun demo() = scrollTap("Explore demo")
+    private fun signInFixture() {
+        compose.runOnIdle { runBlocking { compose.activity.testAuth.signIn("test@example.com", "test-only").getOrThrow() } }
+    }
     private fun back() = compose.onNodeWithContentDescription("Back").performClick()
+
+    private fun startSensorPlayback() {
+        compose.onNodeWithContentDescription("Search").performClick()
+        val start = compose.onAllNodesWithText("Start sample workout")[0]
+        start.performScrollTo()
+        compose.waitForIdle()
+        // Member C's continuous CSV stream needs the same manual clock as its
+        // dedicated sensor integration test; it is no longer a static A2 timer.
+        compose.mainClock.autoAdvance = false
+        start.performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithText("Source: UCI HAPT public dataset · Demo playback").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun finishSensorPlayback() {
+        val repository = compose.activity.workoutRepository
+        val previousCount = runBlocking { repository.observe("test-authenticated-user").first().size }
+        tap("Finish workout")
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNode(hasText("Save session") and hasAnyAncestor(isDialog())).performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitUntil(15_000) { runBlocking { repository.observe("test-authenticated-user").first().size == previousCount + 1 } }
+        compose.mainClock.advanceTimeBy(500)
+        compose.mainClock.autoAdvance = true
+    }
 
     private fun capture(name: String) {
         compose.waitForIdle()
@@ -47,26 +88,26 @@ class PrototypeUiTest {
         compose.onNodeWithText("Name").assertExists()
         capture("02-signup")
         back()
-        demo()
-        compose.onNodeWithText("You have time.\nLet's make it count.").assertIsDisplayed()
+        signInFixture()
+        compose.onNodeWithText("Hi, Test User").assertIsDisplayed()
         capture("03-home")
         scrollTap("Find an activity")
         capture("04-find-activity")
-        compose.onNodeWithContentDescription("Simulate rainy weather").performClick()
-        scrollTap("See recommendation")
-        compose.onNodeWithText("Indoor Mobility").assertExists()
-        capture("17-activity-details")
-        scrollTap("Start activity")
+        compose.onNodeWithText("Load weather").assertExists()
+        compose.onNodeWithText("Show activity details").assertIsNotEnabled()
+        back()
+        startSensorPlayback()
         capture("05-live-workout")
-        scrollTap("Finish workout")
-        tap("Save session")
+        finishSensorPlayback()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Every session counts").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Edit").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Every session counts").assertIsDisplayed()
         android.os.SystemClock.sleep(4500) // Let the save-feedback snackbar finish before report capture.
         capture("06-history")
         tap("Add workout")
         capture("07-add-workout")
         back()
-        compose.onAllNodes(hasText("Edit") and hasClickAction()).onFirst().performClick()
+        compose.onAllNodes(hasText("Edit") and hasClickAction()).onFirst().performScrollTo().performClick()
         capture("14-edit-workout")
         back()
         compose.onNodeWithContentDescription("Search").performClick()
@@ -89,7 +130,7 @@ class PrototypeUiTest {
     }
 
     @Test fun disabledReminderSurvivesRecreationAndNavigation() {
-        demo()
+        signInFixture()
         compose.onNodeWithContentDescription("Reminder settings").performClick()
         compose.onNodeWithContentDescription("Workout reminders").performClick()
         compose.onNodeWithContentDescription("Workout reminders").performClick()
@@ -102,7 +143,7 @@ class PrototypeUiTest {
     }
 
     @Test fun reminderRejectsAnEmptyRepeatSchedule() {
-        demo()
+        signInFixture()
         compose.onNodeWithContentDescription("Reminder settings").performClick()
         compose.onNodeWithContentDescription("Workout reminders").performScrollTo().performClick()
         listOf("Monday", "Wednesday", "Friday").forEach { day ->
@@ -117,11 +158,11 @@ class PrototypeUiTest {
             activity.setContent {
                 val density = LocalDensity.current
                 CompositionLocalProvider(LocalDensity provides Density(density.density, 1.3f)) {
-                    MoveSmartTheme(darkTheme = true) { MoveSmartApp() }
+                    MoveSmartTheme(darkTheme = true) { MoveSmartApp(workoutRepository = activity.workoutRepository) }
                 }
             }
         }
-        demo()
+        signInFixture()
         tap("Statistics")
         compose.onNodeWithText("Your week in motion").assertExists()
         capture("15-statistics-dark-large-text")
@@ -142,7 +183,7 @@ class PrototypeUiTest {
     }
 
     @Test fun searchEmptyStateAndLogoutReset() {
-        demo()
+        signInFixture()
         compose.onNodeWithContentDescription("Search").performClick()
         compose.onNodeWithText("Search activities or history").performTextInput("zzzzzz")
         compose.onNodeWithText("No activities found. Try walking, cycling or yoga.").assertExists()
@@ -156,32 +197,56 @@ class PrototypeUiTest {
     }
 
     @Test fun contextSelectionSurvivesRecreationAndUpdatesHistoryAndStatistics() {
-        demo()
+        signInFixture()
         tap("Statistics")
         val today = java.time.LocalDate.now()
-        val baseline = com.example.movesmart.model.weekSummary(com.example.movesmart.model.sampleRecords(today), today).totalMinutes
-        compose.onNodeWithContentDescription("Weekly goal: $baseline of 150 minutes").assertExists()
+        // This Activity owns a fresh test file; no production records or A2 fixtures.
+        val saved = runBlocking {
+            compose.activity.workoutRepository.observe("test-authenticated-user").first()
+        }.map { com.example.movesmart.model.WorkoutRecord(it.id, it.title, it.minutes, it.date) }
+        val baseline = com.example.movesmart.model.weekSummary(saved, today).totalMinutes
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Weekly goal: $baseline of 150 minutes").fetchSemanticsNodes().isNotEmpty() }
         tap("Home")
         scrollTap("Find an activity")
         compose.onNodeWithText("Available time").performScrollTo().performClick()
         tap("15 min")
-        compose.onNodeWithContentDescription("Simulate rainy weather").performScrollTo().performClick()
         compose.activityRule.scenario.recreate()
         compose.onNodeWithText("15 min").assertExists()
-        compose.onNodeWithContentDescription("Simulate rainy weather").assertIsOn()
-        scrollTap("See recommendation")
-        compose.onNodeWithText("Indoor Mobility").assertExists()
-        compose.onNodeWithText("15 min · Medium intensity · Chadstone").assertExists()
-        scrollTap("Start activity")
-        compose.onNodeWithText("15:00").assertExists()
-        scrollTap("Finish workout")
-        tap("Save session")
-        compose.onNodeWithText("Indoor Mobility").assertExists()
+        compose.onNodeWithText("Show activity details").assertIsNotEnabled()
+        back()
+        startSensorPlayback()
+        compose.onNodeWithText("Source: UCI HAPT public dataset · Demo playback").assertExists()
+        finishSensorPlayback()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Every session counts").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Edit").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Outdoor Walk").assertExists()
         compose.onNode(hasText("Statistics") and isSelectable()).performClick()
-        compose.onNodeWithContentDescription("Weekly goal: ${baseline + 15} of 150 minutes").assertExists()
+        val measured = runBlocking { compose.activity.workoutRepository.observe("test-authenticated-user").first().single() }
+        assertEquals(DataSource.DEMO, measured.source)
+        assertTrue(measured.startedAt != null && measured.minutes >= 1)
+        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Weekly goal: ${baseline + measured.minutes} of 150 minutes").fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun memberAOnboardingPreferencesReachBAndD() {
+        val auth = OnboardingTestAuth()
+        val preferences = OnboardingTestPreferences()
+        val google = object : GoogleLoginProvider {
+            override suspend fun getIdToken(activity: android.app.Activity) =
+                Result.failure<String>(UnsupportedOperationException("Not used in email onboarding"))
+            override suspend fun clear() = Result.success(Unit)
+        }
+        compose.activityRule.scenario.onActivity { activity ->
+            val authModel = AuthViewModel(auth, google)
+            val preferencesModel = PreferencesViewModel(auth, preferences)
+            accountModels.put("auth", authModel)
+            accountModels.put("preferences", preferencesModel)
+            activity.setContent {
+                MoveSmartTheme {
+                    MoveSmartApp(workoutRepository = activity.workoutRepository,
+                        authViewModelOverride = authModel, preferencesViewModelOverride = preferencesModel)
+                }
+            }
+        }
         scrollTap("Don't have an account? Sign Up")
         compose.onNodeWithText("Name").performTextInput("Integration Tester")
         compose.onNodeWithText("Email").performTextInput("tester@example.com")
@@ -192,20 +257,56 @@ class PrototypeUiTest {
         compose.onNodeWithText("Password", substring = false).performScrollTo().performTextReplacement("demo passphrase 123")
         compose.onNodeWithText("Confirm Password").performScrollTo().performTextReplacement("demo passphrase 123")
         scrollTap("Create Account")
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Exercise Preferences").fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithText("Find an activity").fetchSemanticsNodes().isNotEmpty()
+        }
+        if (compose.onAllNodesWithText("Exercise Preferences").fetchSemanticsNodes().isEmpty()) {
+            scrollTap("Preferences")
+        }
         compose.onNodeWithText("Exercise Preferences").assertExists()
         scrollTap("High")
         compose.onNodeWithText("Weekly movement goal (minutes)").performScrollTo().performClick()
         tap("180")
         scrollTap("Save Preferences")
+        compose.waitUntil(5_000) { preferences.saved.value?.weeklyGoalMinutes == 180 }
+        assertEquals("onboarding-test-user", preferences.saved.value?.userId)
+        assertEquals(Intensity.HIGH, preferences.saved.value?.preferredIntensity)
         scrollTap("Find an activity")
         compose.onNodeWithText("High").assertExists()
-        scrollTap("See recommendation")
-        compose.onNodeWithText("Outdoor Jogging").assertExists()
+        compose.onNodeWithText("Load weather").assertExists()
+        // Real weather delivery is validated separately; this test remains offline.
+        compose.onNodeWithText("Show activity details").assertIsNotEnabled()
         tap("Profile")
         compose.onNodeWithText("Integration Tester").assertExists()
         compose.onNodeWithText("tester@example.com").assertExists()
         scrollTap("View statistics")
-        compose.onNodeWithText(" / 180 min").assertExists()
+        compose.onNodeWithText("Your week in motion").assertExists()
+        compose.onNodeWithContentDescription("Weekly goal: 0 of 180 minutes").assertExists()
+        assertTrue(runBlocking { compose.activity.workoutRepository.observe("test-authenticated-user").first() }.isEmpty())
+        assertTrue(runBlocking { compose.activity.workoutRepository.observe("onboarding-test-user").first() }.isEmpty())
     }
 
+}
+
+private class OnboardingTestAuth : AuthRepository {
+    override val currentUser = MutableStateFlow<UserAccount?>(null)
+    override suspend fun signUp(displayName: String, email: String, password: String): Result<UserAccount> {
+        val account = UserAccount("onboarding-test-user", displayName, email)
+        currentUser.value = account
+        return Result.success(account)
+    }
+    override suspend fun signIn(email: String, password: String) =
+        Result.failure<UserAccount>(UnsupportedOperationException("Use signup in this fixture"))
+    override suspend fun signInWithGoogle(idToken: String) = signIn("", "")
+    override suspend fun signOut(): Result<Unit> { currentUser.value = null; return Result.success(Unit) }
+}
+
+private class OnboardingTestPreferences : PreferencesRepository {
+    val saved = MutableStateFlow<UserPreferences?>(null)
+    override fun observe(userId: String) = saved
+    override suspend fun save(preferences: UserPreferences): Result<Unit> {
+        saved.value = preferences
+        return Result.success(Unit)
+    }
 }

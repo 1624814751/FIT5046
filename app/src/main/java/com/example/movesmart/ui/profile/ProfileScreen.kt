@@ -44,37 +44,38 @@ import com.example.movesmart.ui.preferences.PreferencesViewModel
 import com.example.movesmart.ui.preferences.environmentToText
 import com.example.movesmart.ui.preferences.intensityToText
 
+// Profile screen: Display user information
 @Composable
 fun ProfileScreen(
-    intensity: String,
-    activities: List<String>,
-    goal: String,
-    displayName: String,
-    email: String,
-    weeklyMinutes: Int,
     reminderEnabled: Boolean,
     onReminders: () -> Unit,
     onStatistics: () -> Unit,
     onEditPreferences: () -> Unit,
     onLogout: () -> Unit,
-    isDemoMode: Boolean,
     authViewModel: AuthViewModel,
     preferencesViewModel: PreferencesViewModel
 ) {
     val authState by authViewModel.state.collectAsStateWithLifecycle()
     val account by authViewModel.currentUser.collectAsStateWithLifecycle()
     val preferencesState by preferencesViewModel.state.collectAsStateWithLifecycle()
-    var confirmLogout by remember { mutableStateOf(false) }
+    var confirmLogout by remember(account?.userId) { mutableStateOf(false) }
 
-    val shownName = account?.displayName ?: displayName
-    val shownEmail = account?.email ?: email
-    val savedPreferences = preferencesState.preferences
-    val shownIntensity = savedPreferences?.let { intensityToText(it.preferredIntensity) } ?: intensity
-    val shownActivities = savedPreferences?.activityNames ?: activities
-    val shownGoal = savedPreferences?.goal ?: goal
-    val shownWeeklyMinutes = savedPreferences?.weeklyGoalMinutes ?: weeklyMinutes
+    val shownName = account?.displayName ?: "Signed out"
+    val shownEmail = account?.email.orEmpty()
+    val savedPreferences = preferencesState.preferences?.takeIf {
+        account != null && it.userId == account?.userId
+    }
+    val shownIntensity = savedPreferences?.let { intensityToText(it.preferredIntensity) }
+    val shownActivities = savedPreferences?.activityNames
+    val shownGoal = savedPreferences?.goal
+    val shownWeeklyMinutes = savedPreferences?.weeklyGoalMinutes
     val isAuthLoading = authState == UiState.Loading
-    val isLoading = isAuthLoading || preferencesState.isLoading
+    val preferencesLoading = account != null &&
+        (preferencesState.isLoading || preferencesState.userId != account?.userId)
+    val preferencesError = preferencesState.errorMessage.takeIf {
+        account != null && preferencesState.userId == account?.userId
+    }
+    val isLoading = isAuthLoading || preferencesLoading
     Column(
         modifier = Modifier.fillMaxSize().background(AppBackground)
             .verticalScroll(rememberScrollState()).padding(24.dp),
@@ -99,10 +100,6 @@ fun ProfileScreen(
                         Text(shownEmail, color = TextMuted, fontSize = 14.sp)
                     }
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Fitness Level", color = TextMuted, fontSize = 14.sp)
-                    Text("Beginner", color = TextInk, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                }
             }
         }
         Card(
@@ -112,22 +109,31 @@ fun ProfileScreen(
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Exercise Preferences", color = TextInk, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Preferred intensity", color = TextMuted, fontSize = 14.sp)
-                    Text(shownIntensity, color = TextInk, fontSize = 16.sp)
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Preferred activities", color = TextMuted, fontSize = 14.sp)
-                    Text(shownActivities.joinToString(", ").ifEmpty { "None selected" }, color = TextInk, fontSize = 16.sp)
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Goal", color = TextMuted, fontSize = 14.sp)
-                    Text(shownGoal, color = TextInk, fontSize = 16.sp)
-                }
-                savedPreferences?.let {
+                if (savedPreferences == null || preferencesLoading || preferencesError != null) {
+                    Text(when {
+                        account == null -> "Sign in to view your preferences."
+                        preferencesLoading -> "Loading preferences..."
+                        preferencesError != null -> "Could not load preferences."
+                        else -> "No preferences saved yet."
+                    }, color = TextMuted)
+                } else {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Environment", color = TextMuted, fontSize = 14.sp)
-                        Text(environmentToText(it.environment), color = TextInk, fontSize = 16.sp)
+                        Text("Preferred intensity", color = TextMuted, fontSize = 14.sp)
+                        Text(shownIntensity.orEmpty(), color = TextInk, fontSize = 16.sp)
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Preferred activities", color = TextMuted, fontSize = 14.sp)
+                        Text(shownActivities.orEmpty().joinToString(", ").ifEmpty { "None selected" }, color = TextInk, fontSize = 16.sp)
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Goal", color = TextMuted, fontSize = 14.sp)
+                        Text(shownGoal.orEmpty(), color = TextInk, fontSize = 16.sp)
+                    }
+                    savedPreferences?.let {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Environment", color = TextMuted, fontSize = 14.sp)
+                            Text(environmentToText(it.environment), color = TextInk, fontSize = 16.sp)
+                        }
                     }
                 }
             }
@@ -140,11 +146,13 @@ fun ProfileScreen(
         ) {
             Text("Edit Preferences", fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
-        Text("Weekly goal: $shownWeeklyMinutes minutes", color = TextMuted)
+        if (shownWeeklyMinutes != null && !preferencesLoading && preferencesError == null) {
+            Text("Weekly goal: $shownWeeklyMinutes minutes", color = TextMuted)
+        }
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
         }
-        val errorMessage = (authState as? UiState.Error)?.message ?: preferencesState.errorMessage
+        val errorMessage = (authState as? UiState.Error)?.message ?: preferencesError
         if (errorMessage != null) {
             Text(errorMessage, color = androidx.compose.material3.MaterialTheme.colorScheme.error)
         }
@@ -165,20 +173,15 @@ fun ProfileScreen(
         }
     }
     if (confirmLogout) AlertDialog(onDismissRequest = { confirmLogout = false },
-        title = { Text(if (isDemoMode) "Leave the demo?" else "Log out?") },
+        title = { Text("Log out?") },
         text = {
             Text(
-                if (isDemoMode) "Your demo edits will be reset. You can explore again from the login screen."
-                else "Your saved preferences will stay on this device for your account."
+                "Your saved preferences will stay on this device for your account."
             )
         },
         confirmButton = { TextButton(onClick = {
             confirmLogout = false
-            if (isDemoMode) {
-                onLogout()
-            } else {
-                authViewModel.logout(onSignedOut = onLogout)
-            }
+            authViewModel.logout(onSignedOut = onLogout)
         }) { Text("Log out") } },
         dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("Cancel") } })
 }

@@ -1,17 +1,23 @@
 package com.example.movesmart
 
 import android.app.Activity
+import androidx.lifecycle.ViewModelStore
 import com.example.movesmart.data.remote.GoogleLoginCancelledException
 import com.example.movesmart.data.remote.GoogleLoginProvider
+import com.example.movesmart.data.remote.SignupProfileException
 import com.example.movesmart.shared.AuthRepository
 import com.example.movesmart.shared.UiState
 import com.example.movesmart.shared.UserAccount
 import com.example.movesmart.ui.auth.AuthViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -23,6 +29,112 @@ import org.junit.Test
 class AuthViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
+
+    @Test fun externalLogoutClearsOldSuccess() = runTest {
+        val repository = FakeAuthRepository()
+        val model = AuthViewModel(repository, FakeGoogleLoginProvider())
+        val owner = ViewModelStore().apply { put("auth", model) }
+        model.login("alex@example.com", "password")
+        runCurrent()
+        assertTrue(model.state.value is UiState.Success)
+        repository.setUser(null)
+        runCurrent()
+        assertEquals(UiState.Idle, model.state.value)
+        owner.clear()
+    }
+
+    @Test fun delayedLoginCannotPublishSuccessForAnotherSession() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val repository = FakeAuthRepository().apply { loginGate = gate; publishLogin = false }
+        val model = AuthViewModel(repository, FakeGoogleLoginProvider())
+        val owner = ViewModelStore().apply { put("auth", model) }
+        model.login("alex@example.com", "password")
+        runCurrent()
+        repository.setUser(UserAccount("user-b", "B", "b@example.com"))
+        runCurrent()
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals("user-b", model.currentUser.value?.userId)
+        assertEquals(UiState.Idle, model.state.value)
+        owner.clear()
+    }
+
+    @Test fun delayedFailureIsIgnoredAfterSessionChangesBack() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val repository = FakeAuthRepository().apply {
+            loginGate = gate
+            loginResult = Result.failure(IllegalStateException("Old login failure"))
+        }
+        val model = AuthViewModel(repository, FakeGoogleLoginProvider())
+        val owner = ViewModelStore().apply { put("auth", model) }
+        model.login("alex@example.com", "password")
+        runCurrent()
+        repository.setUser(UserAccount("user-b", "B", "b@example.com"))
+        runCurrent()
+        repository.setUser(null)
+        runCurrent()
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals(UiState.Idle, model.state.value)
+        owner.clear()
+    }
+
+    @Test fun credentialCleanupCannotNavigateOutOfANewSession() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val repository = FakeAuthRepository()
+        val provider = FakeGoogleLoginProvider().apply { clearGate = gate }
+        val model = AuthViewModel(repository, provider)
+        val owner = ViewModelStore().apply { put("auth", model) }
+        model.login("alex@example.com", "password")
+        runCurrent()
+        var navigated = false
+        model.logout { navigated = true }
+        runCurrent()
+        repository.setUser(UserAccount("user-b", "B", "b@example.com"))
+        runCurrent()
+        gate.complete(Unit)
+        runCurrent()
+        assertFalse(navigated)
+        assertEquals("user-b", model.currentUser.value?.userId)
+        assertFalse(model.state.value is UiState.Error)
+        owner.clear()
+    }
+
+    @Test fun coroutineCancellationDoesNotBecomeAuthenticationError() = runTest {
+        val repository = FakeAuthRepository().apply { loginResult = Result.failure(CancellationException()) }
+        val model = AuthViewModel(repository, FakeGoogleLoginProvider())
+        val owner = ViewModelStore().apply { put("auth", model) }
+        model.login("alex@example.com", "password")
+        runCurrent()
+        assertEquals(UiState.Idle, model.state.value)
+        owner.clear()
+    }
+
+    @Test fun partialSignupFailureExplainsThatAccountAlreadyExists() = runTest {
+        val repository = FakeAuthRepository().apply { signupFailure = SignupProfileException(IllegalStateException("Offline")) }
+        val model = AuthViewModel(repository, FakeGoogleLoginProvider())
+        val owner = ViewModelStore().apply { put("auth", model) }
+        model.signup("Alex", "alex@example.com", "long-password", "long-password")
+        runCurrent()
+        assertNull(model.currentUser.value)
+        assertTrue((model.state.value as UiState.Error).message.contains("Your account was created"))
+        owner.clear()
+    }
+
+    @Test fun validationCannotUnlockAnUnfinishedLogin() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val repository = FakeAuthRepository().apply { loginGate = gate }
+        val model = AuthViewModel(repository, FakeGoogleLoginProvider())
+        val owner = ViewModelStore().apply { put("auth", model) }
+        model.login("alex@example.com", "password")
+        runCurrent()
+        model.login("", "")
+        assertEquals(UiState.Loading, model.state.value)
+        gate.complete(Unit)
+        runCurrent()
+        assertTrue(model.state.value is UiState.Success)
+        owner.clear()
+    }
 
     @Test
     fun loginErrorIsShown() = runTest(mainDispatcherRule.dispatcher) {
@@ -171,10 +283,12 @@ private class FakeGoogleLoginProvider(
     private val clearResult: Result<Unit> = Result.success(Unit)
 ) : GoogleLoginProvider {
     var clearCalls = 0
+    var clearGate: CompletableDeferred<Unit>? = null
 
     override suspend fun getIdToken(activity: Activity): Result<String> = result
     override suspend fun clear(): Result<Unit> {
         clearCalls += 1
+        clearGate?.await()
         return clearResult
     }
 }
@@ -187,9 +301,14 @@ private class FakeAuthRepository : AuthRepository {
     )
     var signOutResult: Result<Unit> = Result.success(Unit)
     var signOutCalls = 0
+    var loginGate: CompletableDeferred<Unit>? = null
+    var publishLogin = true
+    var signupFailure: Exception? = null
+    fun setUser(account: UserAccount?) { userFlow.value = account }
 
     override suspend fun signIn(email: String, password: String): Result<UserAccount> {
-        loginResult.getOrNull()?.let { userFlow.value = it }
+        loginGate?.await()
+        if (publishLogin) loginResult.getOrNull()?.let { userFlow.value = it }
         return loginResult
     }
 
@@ -200,6 +319,11 @@ private class FakeAuthRepository : AuthRepository {
     ): Result<UserAccount> {
         val account = UserAccount("user-a", displayName, email)
         userFlow.value = account
+        signupFailure?.let {
+            yield()
+            userFlow.value = null
+            return Result.failure(it)
+        }
         return Result.success(account)
     }
 
