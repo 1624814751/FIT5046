@@ -10,11 +10,11 @@ import org.junit.Test
 
 class MotionWindowClassifierTest {
     @Test
-    fun reportsUnknownUntilAFullSameLabelWindowThenLow() {
+    fun usesDatasetLabelAsAProvisionalBandUntilTheMeasuredWindowIsReady() {
         val classifier = MotionWindowClassifier(windowSize = 50)
 
         repeat(49) {
-            assertEquals(MovementBand.UNKNOWN, classifier.add(sample(az = 1.0)))
+            assertEquals(MovementBand.LOW, classifier.add(sample(az = 1.0)))
         }
 
         assertEquals(MovementBand.LOW, classifier.add(sample(az = 1.0)))
@@ -48,9 +48,17 @@ class MotionWindowClassifierTest {
         val classifier = MotionWindowClassifier(windowSize = 50)
         repeat(49) { classifier.add(sample(az = 1.0, label = "STANDING")) }
 
-        assertEquals(MovementBand.UNKNOWN, classifier.add(sample(ax = 1.20, label = "WALKING")))
+        assertEquals(MovementBand.MODERATE, classifier.add(sample(ax = 1.20, label = "WALKING")))
         repeat(48) { classifier.add(sample(ax = 1.20, label = "WALKING")) }
         assertEquals(MovementBand.MODERATE, classifier.add(sample(ax = 1.20, label = "WALKING")))
+    }
+
+    @Test
+    fun keepsUnknownForAnUnrecognisedDatasetLabelUntilMeasurementCompletes() {
+        val classifier = MotionWindowClassifier(windowSize = 2)
+
+        assertEquals(MovementBand.UNKNOWN, classifier.add(sample(az = 1.0, label = "UNMAPPED")))
+        assertEquals(MovementBand.LOW, classifier.add(sample(az = 1.0, label = "UNMAPPED")))
     }
 
     @Test

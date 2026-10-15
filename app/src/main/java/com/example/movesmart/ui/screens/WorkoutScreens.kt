@@ -95,7 +95,6 @@ fun LiveActivityScreen(
 
         OutlinedButton(
             onTogglePause,
-            enabled = state.playbackError == null,
             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
         ) {
             Text(if (state.paused) "Resume workout" else "Pause workout")
